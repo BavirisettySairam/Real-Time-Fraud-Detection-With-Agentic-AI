@@ -145,9 +145,15 @@ class TheYapper:
     The Yapper — SHAP + LLM explanation agent.
 
     Pipeline: SHAP TreeExplainer on LightGBM → structured context → LLM
-    (OpenRouter) → plain-English explanation for non-technical analysts.
+    (Google Gemini) → plain-English explanation for non-technical analysts.
     Falls back to a template explanation when the LLM is unavailable.
     """
+
+    GEMINI_MODEL_CASCADE = [
+        "gemini-2.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-2.5-flash",
+    ]
 
     def __init__(
         self,
@@ -158,15 +164,16 @@ class TheYapper:
         request_timeout_s: float = 15.0,
     ):
         self.vibe_checker = vibe_checker
-        self.llm_api_key = llm_api_key or os.getenv("OPENROUTER_API_KEY")
-        self.llm_model = llm_model or os.getenv(
-            "OPENROUTER_MODEL", "openai/gpt-4o-mini"
-        )
-        self.openrouter_base_url = os.getenv(
-            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
-        )
+        self.llm_api_key = llm_api_key or os.getenv("GOOGLE_API_KEY")
+        self.gemini_base_url = "https://generativelanguage.googleapis.com/v1beta"
         self.request_timeout_s = max(2.0, float(request_timeout_s))
         self._shap_explainer = None
+
+        # Build model cascade: explicit model first, then class defaults
+        primary = llm_model or os.getenv("GOOGLE_MODEL", "gemini-2.5-flash-lite")
+        self.model_cascade = [primary] + [
+            m for m in self.GEMINI_MODEL_CASCADE if m != primary
+        ]
 
         if use_llm is None:
             self.use_llm = bool(self.llm_api_key)
@@ -464,7 +471,7 @@ class TheYapper:
         return " ".join(parts)
 
     # ------------------------------------------------------------------
-    # LLM explanation via OpenRouter
+    # LLM explanation via Google Gemini (model cascade)
     # ------------------------------------------------------------------
 
     def _call_llm(
@@ -476,11 +483,65 @@ class TheYapper:
         features: List[FeatureContribution],
         risk_factors: List[str],
     ) -> Optional[str]:
-        """Call the LLM and return the explanation string, or None on failure."""
+        """Try each Gemini model in cascade order; return first success or None."""
         if not self.llm_api_key:
             return None
 
-        # Build SHAP context for the prompt (top 8 features)
+        system_prompt, user_prompt = self._build_llm_prompts(
+            transaction, prediction, agent_scores, violations, features, risk_factors,
+        )
+        body = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"parts": [{"text": user_prompt}]}],
+            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400},
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-goog-api-key": self.llm_api_key,
+        }
+
+        for model in self.model_cascade:
+            url = f"{self.gemini_base_url}/models/{model}:generateContent"
+            try:
+                resp = requests.post(
+                    url, headers=headers, json=body,
+                    timeout=self.request_timeout_s,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    content = (
+                        candidates[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", "")
+                        .strip()
+                    )
+                    if content:
+                        logger.info("Gemini [%s] explanation generated (%d chars)", model, len(content))
+                        return content
+                logger.warning("Gemini [%s] returned empty content, trying next model", model)
+            except requests.exceptions.Timeout:
+                logger.warning("Gemini [%s] timed out after %.1fs, trying next model", model, self.request_timeout_s)
+            except requests.exceptions.HTTPError as e:
+                logger.warning("Gemini [%s] HTTP %s — %s, trying next model", model, e, getattr(e.response, 'text', '')[:200])
+            except Exception as e:
+                logger.warning("Gemini [%s] failed: %s, trying next model", model, e)
+
+        logger.warning("All Gemini models exhausted — falling back to template")
+        return None
+
+    def _build_llm_prompts(
+        self,
+        transaction: Dict[str, Any],
+        prediction: float,
+        agent_scores: Dict[str, float],
+        violations: List[str],
+        features: List[FeatureContribution],
+        risk_factors: List[str],
+    ) -> tuple:
+        """Build (system_prompt, user_prompt) for the Gemini request."""
         top_feats = features[:8]
         shap_lines = []
         for f in top_feats:
@@ -490,17 +551,10 @@ class TheYapper:
             )
         shap_block = "\n".join(shap_lines) if shap_lines else "  (no SHAP data available)"
 
-        # Agent scores context
         agent_block = ", ".join(
             f"{name}: {score:.1%}" for name, score in agent_scores.items()
         )
-
-        # Violations
-        viol_block = (
-            ", ".join(violations[:5]) if violations else "None"
-        )
-
-        # Risk factors
+        viol_block = ", ".join(violations[:5]) if violations else "None"
         risk_block = (
             "\n".join(f"  - {r}" for r in risk_factors[:5])
             if risk_factors else "  None identified"
@@ -541,53 +595,7 @@ Please write:
             "meaning (e.g. 'transaction amount' not 'TransactionAmt_log'). "
             "Be concise and actionable."
         )
-
-        body = {
-            "model": self.llm_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.3,
-            "max_tokens": 350,
-        }
-        headers = {
-            "Authorization": f"Bearer {self.llm_api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": os.getenv(
-                "OPENROUTER_SITE_URL", "http://localhost"
-            ),
-            "X-Title": os.getenv(
-                "OPENROUTER_APP_NAME", "Fraud Detection System"
-            ),
-        }
-
-        try:
-            resp = requests.post(
-                f"{self.openrouter_base_url}/chat/completions",
-                headers=headers,
-                json=body,
-                timeout=self.request_timeout_s,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            content = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-                .strip()
-            )
-            if content:
-                logger.info("LLM explanation generated (%d chars)", len(content))
-                return content
-            logger.warning("LLM returned empty content")
-        except requests.exceptions.Timeout:
-            logger.warning("LLM request timed out after %.1fs", self.request_timeout_s)
-        except requests.exceptions.HTTPError as e:
-            logger.warning("LLM HTTP error: %s", e)
-        except Exception as e:
-            logger.warning("LLM explanation failed: %s", e)
-        return None
+        return system_prompt, user_prompt
 
     # ------------------------------------------------------------------
     # Confidence assessment

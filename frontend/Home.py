@@ -337,6 +337,32 @@ def build_full_payload(overrides: dict) -> dict:
     return base
 
 
+@st.cache_data
+def load_transaction_by_id(transaction_id: int) -> dict:
+    """Load a full transaction+identity row from train CSVs by TransactionID."""
+    tx_path = TRAIN_TRANSACTION_PATH
+    id_path = TRAIN_IDENTITY_PATH
+    if not tx_path.exists():
+        return {}
+    # Read only the TransactionID column to find the row index, avoiding full CSV load
+    tid_col = pd.read_csv(tx_path, usecols=["TransactionID"])
+    matches = tid_col.index[tid_col["TransactionID"] == transaction_id].tolist()
+    if not matches:
+        return {}
+    row_idx = matches[0]
+    # Read just that single row (skiprows skips all rows except header + target)
+    tx_row = pd.read_csv(tx_path, skiprows=range(1, row_idx + 1), nrows=1)
+    payload = {k: _sanitize_for_json(v) for k, v in tx_row.iloc[0].to_dict().items()}
+    if id_path.exists():
+        id_tid = pd.read_csv(id_path, usecols=["TransactionID"])
+        id_matches = id_tid.index[id_tid["TransactionID"] == transaction_id].tolist()
+        if id_matches:
+            id_row = pd.read_csv(id_path, skiprows=range(1, id_matches[0] + 1), nrows=1)
+            payload.update({k: _sanitize_for_json(v) for k, v in id_row.iloc[0].to_dict().items()})
+    payload.pop("isFraud", None)
+    return payload
+
+
 def _get_default(reference_payload: dict, field: str, fallback=None):
     value = reference_payload.get(field, fallback)
     return fallback if value is None else value
@@ -917,87 +943,47 @@ DEMO_SCENARIOS = [
     {
         "name": "Routine Purchase",
         "tag": "legit", "tag_label": "LEGIT",
-        "description": "Typical daytime Visa purchase under $100. All fields normal — expect APPROVE with low scores across all agents.",
-        "overrides": {
-            "TransactionAmt": 67.50, "ProductCD": "W", "card4": "visa", "card6": "debit",
-            "hour": 14, "day": 2, "addr1": 325.0, "addr2": 87.0,
-            "P_emaildomain": "gmail.com", "R_emaildomain": "gmail.com",
-            "M1": "T", "M2": "T", "M3": "T", "M4": "T", "M5": "T", "M6": "T",
-            "DeviceType": "desktop", "DeviceInfo": "Windows",
-            "txn_count_1h": 1, "amount_1h": 67.50,
-        },
+        "description": "Typical daytime purchase under $100 (ProductCD=W). All fields normal — expect APPROVE with low scores across all agents.",
+        "transaction_id": 3338576,
     },
     {
         "name": "Recurring Subscription",
         "tag": "legit", "tag_label": "LEGIT",
-        "description": "Low-value recurring charge from a known email domain during business hours. Classic legitimate pattern.",
-        "overrides": {
-            "TransactionAmt": 12.99, "ProductCD": "S", "card4": "mastercard", "card6": "credit",
-            "hour": 10, "day": 1, "addr1": 200.0, "addr2": 87.0,
-            "P_emaildomain": "outlook.com", "R_emaildomain": "outlook.com",
-            "M1": "T", "M2": "T", "M3": "T", "M4": "T", "M5": "T", "M6": "T",
-            "DeviceType": "mobile", "DeviceInfo": "iOS Device",
-            "txn_count_1h": 0, "amount_1h": 0.0,
-        },
+        "description": "Low-value recurring charge (ProductCD=S) during business hours. Classic legitimate pattern.",
+        "transaction_id": 3222562,
     },
     {
         "name": "High-Value Midnight Transaction",
         "tag": "fraud", "tag_label": "FRAUD",
-        "description": "Large transaction at 3 AM with mismatched emails and high velocity. Expect BLOCK — all agents should flag this.",
-        "overrides": {
-            "TransactionAmt": 8500.00, "ProductCD": "H", "card4": "visa", "card6": "debit",
-            "hour": 3, "day": 5, "addr1": 0.0, "addr2": 0.0,
-            "P_emaildomain": "protonmail.com", "R_emaildomain": "yahoo.com",
-            "M1": "F", "M2": "F", "M3": "T", "M5": "F", "M6": "F",
-            "DeviceType": "desktop", "DeviceInfo": "Linux",
-            "txn_count_1h": 12, "amount_1h": 25000.0,
-        },
+        "description": "Large transaction at 3 AM — real fraud case from training data. Expect BLOCK — all agents should flag this.",
+        "transaction_id": 3499538,
     },
     {
         "name": "Gift Card Fraud Pattern",
         "tag": "fraud", "tag_label": "FRAUD",
-        "description": "Multiple gift card purchases in rapid succession with missing identity data. Classic carding pattern. Expect BLOCK.",
-        "overrides": {
-            "TransactionAmt": 500.00, "ProductCD": "C", "card4": "discover", "card6": "credit",
-            "hour": 2, "day": 0, "addr1": 0.0, "addr2": 0.0,
-            "P_emaildomain": "", "R_emaildomain": "",
-            "DeviceType": "", "DeviceInfo": "",
-            "txn_count_1h": 8, "amount_1h": 4000.0,
-        },
+        "description": "Gift card purchase (ProductCD=C) flagged as fraud. Classic carding pattern. Expect BLOCK.",
+        "transaction_id": 3250034,
     },
     {
         "name": "Borderline — Unusual but Plausible",
         "tag": "review", "tag_label": "REVIEW",
-        "description": "Medium amount, evening, slightly elevated velocity. Not clearly fraud or legit — expect REVIEW. Tests the blend zone (score 0.4–0.7).",
-        "overrides": {
-            "TransactionAmt": 350.00, "ProductCD": "W", "card4": "mastercard", "card6": "credit",
-            "hour": 21, "day": 4, "addr1": 150.0, "addr2": 87.0,
-            "P_emaildomain": "yahoo.com", "R_emaildomain": "",
-            "M1": "T", "M2": "T", "M3": "F", "M4": "T", "M5": "F", "M6": "T",
-            "DeviceType": "mobile", "DeviceInfo": "Android",
-            "txn_count_1h": 5, "amount_1h": 1200.0,
-        },
+        "description": "Medium amount, evening transaction. Not clearly fraud or legit — expect REVIEW. Tests the blend zone.",
+        "transaction_id": 3424194,
     },
     {
         "name": "Agent Disagreement — Mixed Signals",
         "tag": "disagree", "tag_label": "DISAGREEMENT",
-        "description": "Designed to split the agents: high amount triggers OG rules, but normal time/device keeps Era calm. "
-                       "Watch how the fusion formula resolves conflicting signals via dynamic weighting.",
-        "overrides": {
-            "TransactionAmt": 2500.00, "ProductCD": "W", "card4": "visa", "card6": "debit",
-            "hour": 15, "day": 3, "addr1": 325.0, "addr2": 87.0,
-            "P_emaildomain": "gmail.com", "R_emaildomain": "gmail.com",
-            "M1": "T", "M2": "T", "M3": "T", "M4": "T", "M5": "T", "M6": "F",
-            "DeviceType": "desktop", "DeviceInfo": "Windows",
-            "txn_count_1h": 3, "amount_1h": 3500.0,
-        },
+        "description": "High-value ($4k+) daytime purchase that's actually legit. High amount triggers OG rules, "
+                       "but normal time/device keeps Era calm. Watch how fusion resolves conflicting signals.",
+        "transaction_id": 3467581,
     },
 ]
 
 
 def demo_mode_view():
     st.header("Demo Mode")
-    st.markdown("Six curated scenarios demonstrating different fraud patterns and system behaviour.")
+    st.markdown("Six curated scenarios using **real transactions** from the training dataset. "
+                "Each scenario feeds **all features** to the model — not synthetic overrides.")
 
     for scenario in DEMO_SCENARIOS:
         tag_class = f"tag-{scenario['tag']}"
@@ -1005,7 +991,9 @@ def demo_mode_view():
             f'<div class="demo-card">'
             f'<div class="demo-card-title">{scenario["name"]} '
             f'<span class="demo-tag {tag_class}">{scenario["tag_label"]}</span></div>'
-            f'<div class="demo-card-desc">{scenario["description"]}</div></div>',
+            f'<div class="demo-card-desc">{scenario["description"]}</div>'
+            f'<div style="font-size:0.8em;color:#888;margin-top:4px;">TransactionID: {scenario["transaction_id"]}</div>'
+            f'</div>',
             unsafe_allow_html=True,
         )
 
@@ -1016,11 +1004,15 @@ def demo_mode_view():
     )
     scenario = DEMO_SCENARIOS[selected_idx]
 
-    with st.expander("View payload", expanded=False):
-        st.json(scenario["overrides"])
+    payload = load_transaction_by_id(scenario["transaction_id"])
+    if not payload:
+        st.error(f"Could not load TransactionID {scenario['transaction_id']} from training data.")
+        return
+
+    with st.expander("View full payload", expanded=False):
+        st.json(payload)
 
     if st.button("🔍 Run Demo Analysis", use_container_width=True):
-        payload = build_full_payload(scenario["overrides"])
         result = run_with_agent_steps(payload, use_explain=True)
         if result:
             display_results(result)
