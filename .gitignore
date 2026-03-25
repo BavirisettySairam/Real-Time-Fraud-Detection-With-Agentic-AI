@@ -20,8 +20,7 @@ venv/
 
 # Keep repository lightweight: raw datasets are downloaded externally
 # (IEEE-CIS files are very large and should not be committed)
-data/
-*.csv
+data/*.csv
 
 # Optional local artifacts
 *.log
