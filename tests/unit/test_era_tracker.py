@@ -107,6 +107,8 @@ class TestEraTrackerHistory:
 
 class TestEraTrackerFallback:
     def test_heuristic_returns_valid_score(self):
+        from collections import OrderedDict
+
         tracker = EraTracker.__new__(EraTracker)
         tracker.model = None
         tracker.model_loaded = False
@@ -114,7 +116,7 @@ class TestEraTrackerFallback:
         tracker.redis_client = None
         tracker.max_users_in_memory = 100
         tracker.window_seconds = 86400
-        tracker.user_history = {}
+        tracker.user_history = OrderedDict()
         tracker._history_lock = __import__("threading").Lock()
         tracker._cat_indices = []
         tracker._all_features = []
