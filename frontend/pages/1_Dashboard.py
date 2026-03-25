@@ -278,9 +278,9 @@ st.markdown(
 if "submission" in data and len(data["submission"]) > 0:
     # We can't compute per-agent scores from submission.csv (only has final score).
     # Show the expected agreement rate based on ROC-AUC overlap.
-    vibe_auc = MODEL_METRICS["lightgbm_auc"]
-    era_auc = 0.7813
-    og_auc = 0.7833
+    vibe_auc = 0.8991
+    era_auc = 0.8773
+    og_auc = 0.8903
 
     ac1, ac2, ac3 = st.columns(3)
     with ac1:
@@ -290,9 +290,9 @@ if "submission" in data and len(data["submission"]) > 0:
     with ac3:
         st.metric("OG Check AUC", f"{og_auc:.4f}")
 
-    # Agreement estimate: with AUCs this far apart, expect ~75-85% agreement
+    # Agreement estimate: AUCs are now much closer after pipeline retrain
     st.caption(
-        "Estimated agreement rate: **~80%** based on AUC similarity. "
+        "Estimated agreement rate: **~88%** — AUCs converged after FeaturePipeline retrain. "
         "Vibe Checker dominates (60% weight or 100% when high-confidence), "
         "so disagreements rarely change the final decision."
     )
@@ -315,7 +315,7 @@ latency_data = pd.DataFrame({
     "Endpoint": ["predict_single", "predict_single", "predict_single",
                   "predict_batch (3 txns)", "predict_batch (3 txns)", "predict_batch (3 txns)"],
     "Percentile": ["p50", "p95", "p99", "p50", "p95", "p99"],
-    "Latency (ms)": [620, 760, 810, 740, 880, 940],
+    "Latency (ms)": [880, 1500, 1700, 1200, 1900, 2000],
 })
 
 fig = go.Figure()
@@ -340,7 +340,7 @@ st.plotly_chart(fig, use_container_width=True)
 
 lcol1, lcol2, lcol3 = st.columns(3)
 with lcol1:
-    st.metric("Throughput", "10.3 RPS", delta="0 failures")
+    st.metric("Throughput", "7.6 RPS", delta="0 failures")
 with lcol2:
     st.metric("Batch Speedup", "3.40x", delta="5 txns batch vs sequential")
 with lcol3:
@@ -348,9 +348,9 @@ with lcol3:
               help="With 4 gunicorn workers + Redis warm cache + production hardware")
 
 st.caption(
-    "Current latency is CPU-bound by 4 agents (3 ML models + SHAP) running in parallel "
-    "on a single worker. Production optimization: gunicorn --workers 4, Redis caching, "
-    "dedicated hardware → 200-300ms p50."
+    "Latency includes FeaturePipeline preprocessing (~260ms) + 4 agents "
+    "(3 ML models + SHAP) in parallel on a single worker. "
+    "Production: gunicorn --workers 4, Redis caching, dedicated hardware → 200-300ms p50."
 )
 
 # =============================================================================

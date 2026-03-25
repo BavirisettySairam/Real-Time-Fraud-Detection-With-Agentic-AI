@@ -201,15 +201,20 @@ def call_predict_api(transaction_data: dict) -> dict | None:
         r = requests.post(f"{API_URL}/api/v1/predict", json=transaction_data, timeout=30)
         if r.status_code == 200:
             return r.json()
-        st.error(f"Prediction failed — API returned {r.status_code}: {r.text[:300]}")
+        if r.status_code == 422:
+            st.error("Invalid transaction data. Please check the input fields and try again.")
+        elif r.status_code == 429:
+            st.error("Rate limit reached. Please wait a moment and try again.")
+        else:
+            st.error(f"Prediction failed (HTTP {r.status_code}). Please try again or check the API logs.")
         return None
     except requests.exceptions.ConnectionError:
         return _run_local_fallback(transaction_data)
     except requests.exceptions.Timeout:
-        st.error("Request timed out after 30 s. The API may be overloaded.")
+        st.error("The request timed out after 30 s. The API may be overloaded — try again shortly.")
         return None
     except Exception as e:
-        st.error(f"Unexpected error: {e}")
+        st.error(f"Something went wrong: {e}")
         return None
 
 
@@ -219,16 +224,21 @@ def call_explain_api(transaction_data: dict) -> dict | None:
         r = requests.post(f"{API_URL}/api/v1/explain", json=transaction_data, timeout=60)
         if r.status_code == 200:
             return r.json()
-        st.error(f"Explain failed — API returned {r.status_code}: {r.text[:300]}")
+        if r.status_code == 422:
+            st.error("Invalid transaction data. Please check the input fields and try again.")
+        elif r.status_code == 429:
+            st.error("Rate limit reached. Please wait a moment and try again.")
+        else:
+            st.error(f"Explanation failed (HTTP {r.status_code}). Falling back to predict-only.")
         return None
     except requests.exceptions.ConnectionError:
-        st.warning("API not reachable — falling back to predict-only (no SHAP chart).")
+        st.warning("API not reachable — running locally (no SHAP chart available).")
         return _run_local_fallback(transaction_data)
     except requests.exceptions.Timeout:
-        st.error("Explain request timed out after 60 s.")
+        st.error("Explanation timed out after 60 s. Try the predict endpoint instead for faster results.")
         return None
     except Exception as e:
-        st.error(f"Unexpected error: {e}")
+        st.error(f"Something went wrong: {e}")
         return None
 
 
@@ -605,9 +615,25 @@ def display_results(result: dict):
         llm_ok = result.get("llm_used", False)
         st.caption(f"SHAP: {'available' if shap_ok else 'unavailable'} · LLM: {'used' if llm_ok else 'template fallback'}")
 
-    # Agent scores
-    if result.get("agent_scores"):
-        st.plotly_chart(create_agent_scores_chart(result["agent_scores"]), use_container_width=True)
+    # Agent scores — bar chart + per-agent detail cards
+    agent_scores = result.get("agent_scores", {})
+    if agent_scores:
+        st.plotly_chart(create_agent_scores_chart(agent_scores), use_container_width=True)
+
+        # Per-agent verdict cards
+        _agent_labels = {
+            "vibe_checker": ("Vibe Checker", "LGB+XGB ensemble"),
+            "agent_ensemble": ("Ensemble", "Weighted fusion"),
+            "era_tracker": ("Era Tracker", "CatBoost behavioural"),
+            "og_check": ("OG Check", "Rules + LGB hybrid"),
+        }
+        cols = st.columns(len(agent_scores))
+        for col, (key, score) in zip(cols, agent_scores.items()):
+            label, subtitle = _agent_labels.get(key, (key, ""))
+            verdict = "🔴 HIGH" if score > 0.7 else "🟡 REVIEW" if score > 0.4 else "🟢 LOW"
+            with col:
+                st.metric(label, f"{score * 100:.1f}%")
+                st.caption(f"{subtitle}\n{verdict}")
 
     # Explanation
     st.subheader("Explanation")
@@ -786,25 +812,62 @@ def batch_upload_view():
         df = tx_df
 
     st.write(f"Loaded **{len(df)}** transactions")
-    st.dataframe(df.head())
 
-    if st.button("🔍 Analyze All", use_container_width=True):
+    # --- Sample size selection ---
+    has_labels = "isFraud" in df.columns
+    analyze_all = st.checkbox("Analyze all transactions", value=False)
+
+    if analyze_all:
+        sample_df = df
+    else:
+        max_n = min(len(df), 500)
+        n_txns = st.slider("Number of transactions to analyze", min_value=5, max_value=max_n,
+                           value=min(20, max_n), step=5)
+        if has_labels:
+            st.caption("Sampling **30% normal / 70% fraud** for balanced evaluation.")
+            n_fraud = min(int(n_txns * 0.7), len(df[df["isFraud"] == 1]))
+            n_normal = min(n_txns - n_fraud, len(df[df["isFraud"] == 0]))
+            # Adjust if not enough of one class
+            n_fraud = min(n_fraud, len(df[df["isFraud"] == 1]))
+            n_normal = min(n_normal, len(df[df["isFraud"] == 0]))
+            if n_fraud + n_normal < n_txns:
+                # Fill remainder from whichever class has more
+                remaining = n_txns - n_fraud - n_normal
+                if len(df[df["isFraud"] == 1]) - n_fraud > 0:
+                    n_fraud = min(n_fraud + remaining, len(df[df["isFraud"] == 1]))
+                else:
+                    n_normal = min(n_normal + remaining, len(df[df["isFraud"] == 0]))
+            fraud_sample = df[df["isFraud"] == 1].sample(n=n_fraud, random_state=42)
+            normal_sample = df[df["isFraud"] == 0].sample(n=n_normal, random_state=42)
+            sample_df = pd.concat([fraud_sample, normal_sample]).sample(frac=1, random_state=42)
+            st.caption(f"Selected **{n_fraud} fraud** + **{n_normal} normal** = **{len(sample_df)}** transactions")
+        else:
+            st.caption("No `isFraud` column — using random sampling.")
+            sample_df = df.sample(n=min(n_txns, len(df)), random_state=42)
+
+    st.dataframe(sample_df.head())
+
+    if st.button("🔍 Analyze", use_container_width=True):
         results = []
         progress = st.progress(0)
         status_text = st.empty()
+        total = len(sample_df)
 
-        for i, row in df.iterrows():
-            status_text.text(f"Processing {i + 1}/{len(df)}…")
+        for idx, (i, row) in enumerate(sample_df.iterrows()):
+            status_text.text(f"Processing {idx + 1}/{total}…")
             payload = build_full_payload(row.to_dict())
             res = call_predict_api(payload)
             if res:
-                results.append({
+                entry = {
                     "TransactionID": row.get("TransactionID", i),
                     "fraud_prob": res.get("fraud_probability", 0.5),
                     "decision": res.get("decision", "REVIEW"),
                     "risk_level": res.get("risk_level", "MEDIUM"),
-                })
-            progress.progress((i + 1) / len(df))
+                }
+                if has_labels:
+                    entry["actual_fraud"] = int(row.get("isFraud", 0))
+                results.append(entry)
+            progress.progress((idx + 1) / total)
 
         status_text.empty()
         if not results:
@@ -822,6 +885,28 @@ def batch_upload_view():
             st.metric("Blocked", len(results_df[results_df["decision"] == "BLOCK"]))
         with c3:
             st.metric("Avg Fraud Prob", f"{results_df['fraud_prob'].mean() * 100:.1f}%")
+
+        if has_labels and "actual_fraud" in results_df.columns:
+            st.subheader("Accuracy vs Ground Truth")
+            results_df["predicted_fraud"] = (results_df["fraud_prob"] >= 0.5).astype(int)
+            correct = (results_df["predicted_fraud"] == results_df["actual_fraud"]).sum()
+            total_r = len(results_df)
+            acc = correct / total_r if total_r > 0 else 0
+            tp = ((results_df["predicted_fraud"] == 1) & (results_df["actual_fraud"] == 1)).sum()
+            fp = ((results_df["predicted_fraud"] == 1) & (results_df["actual_fraud"] == 0)).sum()
+            fn = ((results_df["predicted_fraud"] == 0) & (results_df["actual_fraud"] == 1)).sum()
+            prec = tp / (tp + fp) if (tp + fp) > 0 else 0
+            rec = tp / (tp + fn) if (tp + fn) > 0 else 0
+
+            ac1, ac2, ac3, ac4 = st.columns(4)
+            with ac1:
+                st.metric("Accuracy", f"{acc * 100:.1f}%")
+            with ac2:
+                st.metric("Precision", f"{prec * 100:.1f}%")
+            with ac3:
+                st.metric("Recall", f"{rec * 100:.1f}%")
+            with ac4:
+                st.metric("Correct / Total", f"{correct} / {total_r}")
 
 
 # =============================================================================
