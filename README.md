@@ -18,7 +18,7 @@ This system scores financial transactions for fraud using a four-agent architect
 | **Vibe Checker** | Primary ML ensemble — LightGBM + XGBoost (90/10 blend, 175 pipeline features) |
 | **Era Tracker** | 24-hour behavioural window analysis — CatBoost on 199 features (175 pipeline + 24 sliding-window) |
 | **OG Check** | Rule + ML hybrid — LightGBM on 194 features (175 pipeline + 19 rule-engineered) |
-| **The Yapper** | Explainability — SHAP TreeExplainer → OpenRouter LLM |
+| **The Yapper** | Explainability — SHAP TreeExplainer → Google Gemini LLM |
 
 ---
 
@@ -121,7 +121,7 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env with your OpenRouter API key for LLM explanations
+# Edit .env with your Google Gemini API key for LLM explanations
 ```
 
 ### Run
@@ -213,9 +213,16 @@ See [TRAINING_WORKFLOW.md](TRAINING_WORKFLOW.md) for full training documentation
 │       └── the_yapper.py     # SHAP + LLM explainability
 ├── models/                   # Trained model artifacts + feature_pipeline.pkl
 ├── data/                     # Dataset (not committed)
-├── frontend/                 # Streamlit dashboard
+├── frontend/                 # Streamlit UI
+│   ├── Home.py               # Detection page
+│   └── pages/
+│       ├── 1_Analytics.py    # Model metrics & charts
+│       ├── 2_System_Overview.py  # Architecture & endpoints
+│       ├── 3_Presentation.py # Project doc & slide links
+│       └── 4_About_Developer.py  # Developer profile & resume
 ├── tests/                    # Unit + integration + load tests
 ├── docs/                     # Technical documentation
+├── nginx/                    # Nginx reverse-proxy config
 ├── train_agents.py           # Training pipeline
 ├── run.py                    # Quick-start launcher
 └── docker-compose.yml        # Container deployment
@@ -228,7 +235,7 @@ See [TRAINING_WORKFLOW.md](TRAINING_WORKFLOW.md) for full training documentation
 | Layer | Technology |
 |---|---|
 | ML Models | LightGBM, XGBoost, CatBoost |
-| Explainability | SHAP, OpenRouter (LLM) |
+| Explainability | SHAP, Google Gemini (LLM) |
 | Orchestration | LangGraph |
 | API | FastAPI, Pydantic, Uvicorn |
 | Frontend | Streamlit, Plotly |

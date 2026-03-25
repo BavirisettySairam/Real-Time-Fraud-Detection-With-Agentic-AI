@@ -104,7 +104,7 @@ Falls back to heuristic rule-sum scoring if the LightGBM model is unavailable.
 | Property | Value |
 |---|---|
 | SHAP | TreeExplainer on Vibe Checker's LightGBM model |
-| LLM | OpenRouter API (configurable model, default `gpt-4o-mini`) |
+| LLM | Google Gemini API (3-model cascade: gemini-2.5-flash-lite → gemini-flash-lite-latest → gemini-2.5-flash) |
 | Fallback | Template-based explanation when LLM is unavailable |
 
 Pipeline:
@@ -112,7 +112,7 @@ Pipeline:
 2. Map raw feature names to human-readable labels (100+ mapped).
 3. Sort by absolute SHAP value → top 8 features.
 4. Build a structured prompt with transaction context, SHAP drivers, agent scores, and risk factors.
-5. Send to LLM via OpenRouter with a system prompt that enforces plain English, no jargon.
+5. Send to LLM via Google Gemini with a system prompt that enforces plain English, no jargon.
 6. Return the LLM explanation alongside SHAP feature breakdown, risk factors, confidence assessment, and recommended action.
 
 ---

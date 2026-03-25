@@ -84,6 +84,8 @@ def main() -> None:
         "Home.py",
         "--server.port",
         "8501",
+        "--server.headless",
+        "true",
     ]
     frontend_dir = base_dir / "frontend"
     streamlit_proc = spawn_process(streamlit_cmd, frontend_dir, frontend_env)

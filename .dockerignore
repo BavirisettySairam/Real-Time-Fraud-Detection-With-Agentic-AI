@@ -5,24 +5,35 @@ __pycache__/
 .ipynb_checkpoints/
 
 .git/
+.github/
 .vscode/
 .venv/
 venv/
+.pytest_cache/
+.coverage
 
 data/
-models/
-!models/
-models/*
-!models/lightgbm_model.txt
-!models/lightgbm_metrics.json
-!models/gnn_metrics.json
+
 notebooks/
 *.ipynb
 
-.env
-.env.*
-
 *.log
-*.csv
-!submission.csv
 *.png
+
+# Test artifacts
+_test_out.txt
+locust_results*
+catboost_info/
+
+# Training scripts (not needed at runtime)
+train_*.py
+sanity_check.py
+verify_baseline.py
+base.ipynb
+submission.csv
+TRAINING_WORKFLOW.md
+
+# Docs & tests (not needed in container)
+docs/
+tests/
+scripts/

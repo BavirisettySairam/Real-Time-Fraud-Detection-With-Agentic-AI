@@ -23,7 +23,7 @@ pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Edit .env — set OPENROUTER_API_KEY for LLM explanations
+# Edit .env — set GOOGLE_API_KEY for LLM explanations
 ```
 
 ### Run
@@ -81,7 +81,7 @@ docker compose down
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENROUTER_API_KEY` | — | OpenRouter API key for LLM explanations |
+| `GOOGLE_API_KEY` | — | Google Gemini API key for LLM explanations |
 
 ### API Gateway
 
@@ -108,11 +108,8 @@ docker compose down
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENROUTER_API_KEY` | — | API key |
-| `OPENROUTER_MODEL` | `openai/gpt-4o-mini` | Model identifier |
-| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | API base URL |
-| `OPENROUTER_SITE_URL` | `http://localhost` | Site URL header |
-| `OPENROUTER_APP_NAME` | `Fraud Detection System` | App name header |
+| `GOOGLE_API_KEY` | — | Google Gemini API key |
+| `GOOGLE_MODEL` | `gemini-2.5-flash-lite` | Primary model (cascade fallback to gemini-flash-lite-latest, gemini-2.5-flash) |
 
 ### Frontend
 

@@ -37,11 +37,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 2G
-        reservations:
-          cpus: "1.0"
-          memory: 1G
+          cpus: "1.5"
+          memory: 1536M
 
   frontend:
     build:
@@ -65,11 +62,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 512M
-        reservations:
           cpus: "0.5"
-          memory: 256M
+          memory: 384M
 
   redis:
     image: redis:7-alpine
@@ -79,33 +73,7 @@ services:
 
     restart: unless-stopped
 
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
-
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-        reservations:
-          cpus: "0.25"
-          memory: 64M
-
-  nginx:
-    image: nginx:alpine
-    container_name: fraud-nginx
-    ports:
-      - "443:443"
-      - "80:80"
-
-    restart: unless-stopped
-
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx/certs:/etc/nginx/certs:ro
-
-    depends_on:
-      - api
-      - frontend
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
 
     deploy:
       resources:

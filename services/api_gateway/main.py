@@ -16,6 +16,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
