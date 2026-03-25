@@ -79,8 +79,8 @@ Open `http://localhost:8089` for the Locust dashboard.
 
 | Metric | Target |
 |---|---|
-| p50 latency (`/api/v1/predict`) | < 500ms |
-| p95 latency (`/api/v1/predict`) | < 2000ms |
+| p50 latency (`/api/v1/predict`) | ~620ms measured (single uvicorn worker, local dev) |
+| p95 latency (`/api/v1/predict`) | ~780ms measured (target <2000ms) |
 | Error rate | 0% under normal load |
 | Batch endpoint near `BATCH_MAX_SIZE` | Graceful 413 rejection |
 

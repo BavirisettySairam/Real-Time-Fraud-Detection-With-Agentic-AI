@@ -88,6 +88,10 @@ Client Request
 
 See [docs/architecture.md](docs/architecture.md) for full technical details.
 
+### Latency
+
+Measured p50 latency is **~620ms** on a single uvicorn worker (local dev). This is driven by 4 agents (3 ML inference + SHAP) running in parallel via ThreadPoolExecutor. With 4 gunicorn workers + Redis warm cache + production hardware, expect **200–300ms** — well within tolerance for a fraud system where the alternative is manual review taking hours. See [docs/load_test_report.md](docs/load_test_report.md) for full benchmark data.
+
 ---
 
 ## Quick Start

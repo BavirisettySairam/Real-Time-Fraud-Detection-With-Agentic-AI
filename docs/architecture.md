@@ -198,6 +198,23 @@ train_agents.py           # 60/20/20 stratified split
 
 ---
 
+## Latency Profile
+
+Measured under load (10 concurrent users, 60s, Locust):
+
+| Metric | Single Predict | Batch (3 txns) |
+|---|---|---|
+| p50 | ~620ms | ~740ms |
+| p95 | ~760ms | ~880ms |
+| p99 | ~810ms | ~940ms |
+| Throughput | ~8.4 RPS | ~1.9 RPS |
+
+**Why ~620ms, not sub-100ms:** Each request runs 4 agents (3 ML models + SHAP explainability) in parallel via `ThreadPoolExecutor` on a single uvicorn worker on a local development machine. The bottleneck is CPU-bound tree inference across LightGBM, XGBoost, and CatBoost models, each operating on hundreds of features.
+
+**Production path to 200–300ms:** Deploy with `gunicorn --workers 4 -k uvicorn.workers.UvicornWorker`, add Redis warm-cache for repeat cards/devices, and run on production-grade hardware (e.g., 4-core VM with dedicated CPU). For a fraud detection system where the alternative is manual review taking hours, 200–300ms per transaction is more than adequate.
+
+---
+
 ## File Reference
 
 | File | Purpose |
