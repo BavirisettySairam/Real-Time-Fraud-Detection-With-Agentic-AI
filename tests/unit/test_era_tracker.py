@@ -3,6 +3,7 @@
 import pytest
 
 from services.agents.era_tracker import EraTracker, EraTrackerResult
+from tests.unit.conftest import preprocess
 
 
 @pytest.fixture(scope="module")
@@ -29,30 +30,33 @@ class TestEraTrackerLoading:
 # ---------------------------------------------------------------------------
 
 class TestEraTrackerScoring:
-    def test_basic_score_in_range(self, era_tracker: EraTracker):
+    def test_basic_score_in_range(self, era_tracker: EraTracker, pipeline):
         txn = {"TransactionAmt": 150.0, "ProductCD": "W", "card1": 99999,
                "card4": "visa", "card6": "debit", "hour": 14, "day": 2,
                "TransactionDT": 100000}
-        result = era_tracker.analyze(txn)
+        features = preprocess(pipeline, txn)
+        result = era_tracker.analyze(txn, pipeline_features=features)
         assert isinstance(result, EraTrackerResult)
         assert 0.0 <= result.fraud_score <= 1.0
         assert 0.0 <= result.anomaly_score <= 1.0
 
-    def test_result_has_pattern_deviations(self, era_tracker: EraTracker):
+    def test_result_has_pattern_deviations(self, era_tracker: EraTracker, pipeline):
         txn = {"TransactionAmt": 500.0, "card1": 88888, "TransactionDT": 200000,
                "ProductCD": "W", "card4": "visa", "card6": "debit", "hour": 10}
-        result = era_tracker.analyze(txn)
+        features = preprocess(pipeline, txn)
+        result = era_tracker.analyze(txn, pipeline_features=features)
         assert isinstance(result.pattern_deviations, list)
         assert isinstance(result.window_txn_count, int)
 
-    def test_explanation_nonempty(self, era_tracker: EraTracker):
+    def test_explanation_nonempty(self, era_tracker: EraTracker, pipeline):
         txn = {"TransactionAmt": 100.0, "card1": 77777, "TransactionDT": 300000,
                "ProductCD": "W", "card4": "visa", "card6": "debit", "hour": 12}
-        result = era_tracker.analyze(txn)
+        features = preprocess(pipeline, txn)
+        result = era_tracker.analyze(txn, pipeline_features=features)
         assert isinstance(result.explanation, str)
         assert len(result.explanation) > 0
 
-    def test_new_user_detected(self):
+    def test_new_user_detected(self, pipeline):
         """A brand-new user (no history) should be detected."""
         tracker = EraTracker()
         txn = {"TransactionAmt": 100.0, "card1": 11111, "TransactionDT": 1000000,

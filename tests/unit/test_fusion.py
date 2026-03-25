@@ -69,7 +69,11 @@ def _build_orchestrator():
 
 def _make_vibe(score, loaded=True):
     class V:
-        def analyze(self, _txn):
+        num_features = 175
+        feature_columns = [f"f_{i}" for i in range(175)]
+        lgb_model = None
+
+        def analyze(self, _features):
             return _DummyVibeResult(
                 score, models_loaded={"lightgbm": loaded, "xgboost": loaded}
             )
@@ -78,14 +82,14 @@ def _make_vibe(score, loaded=True):
 
 def _make_era(score):
     class E:
-        def analyze(self, _txn):
+        def analyze(self, _txn, pipeline_features=None):
             return _DummyResult(score, "era")
     return E()
 
 
 def _make_og(score, violations=None):
     class O:
-        def analyze(self, _txn):
+        def analyze(self, _txn, pipeline_features=None):
             viols = [_DummyRuleViolation(v) for v in (violations or [])]
             return _DummyOGResult(score, viols, "og")
     return O()

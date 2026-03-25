@@ -1,61 +1,65 @@
 {
   "agent": "vibe_checker",
-  "trained_at": "2026-03-24T22:17:16.238377+00:00",
-  "best_threshold": 0.462631,
-  "lgb_weight": 0.9,
+  "trained_at": "2026-03-25T11:21:08.056026+00:00",
+  "best_threshold": 0.81087,
+  "lgb_weight": 0.7,
   "ensemble": {
-    "roc_auc": 0.970619,
-    "pr_auc": 0.856994,
-    "precision": 0.873099,
-    "recall": 0.764279,
-    "f1": 0.815073,
-    "threshold": 0.462631,
+    "roc_auc": 0.899084,
+    "pr_auc": 0.600112,
+    "precision": 0.771417,
+    "recall": 0.479429,
+    "f1": 0.591343,
+    "threshold": 0.81087,
     "confusion_matrix": {
-      "tn": 113517,
-      "fp": 459,
-      "fn": 974,
-      "tp": 3158
+      "tn": 113389,
+      "fp": 587,
+      "fn": 2151,
+      "tp": 1981
     }
   },
   "lightgbm": {
-    "roc_auc": 0.969876,
-    "pr_auc": 0.85853,
-    "precision": 0.878219,
-    "recall": 0.759197,
-    "f1": 0.814382,
-    "threshold": 0.462631,
+    "roc_auc": 0.898366,
+    "pr_auc": 0.601044,
+    "precision": 0.775127,
+    "recall": 0.479671,
+    "f1": 0.592615,
+    "threshold": 0.81087,
     "confusion_matrix": {
-      "tn": 113541,
-      "fp": 435,
-      "fn": 995,
-      "tp": 3137
+      "tn": 113401,
+      "fp": 575,
+      "fn": 2150,
+      "tp": 1982
     }
   },
   "xgboost": {
-    "roc_auc": 0.966946,
-    "pr_auc": 0.814177,
-    "precision": 0.611771,
-    "recall": 0.810019,
-    "f1": 0.697074,
-    "threshold": 0.462631,
+    "roc_auc": 0.895628,
+    "pr_auc": 0.587159,
+    "precision": 0.7128,
+    "recall": 0.481123,
+    "f1": 0.574483,
+    "threshold": 0.81087,
     "confusion_matrix": {
-      "tn": 111852,
-      "fp": 2124,
-      "fn": 785,
-      "tp": 3347
+      "tn": 113175,
+      "fp": 801,
+      "fn": 2144,
+      "tp": 1988
     }
   },
   "lgb_cv_roc_auc": [
-    0.958147,
-    0.959307,
-    0.959211
+    0.895198,
+    0.891775,
+    0.886518,
+    0.893796,
+    0.893673
   ],
   "xgb_cv_roc_auc": [
-    0.955652,
-    0.956994,
-    0.95614
+    0.891619,
+    0.8895,
+    0.882896,
+    0.890249,
+    0.891414
   ],
-  "num_features": 445,
+  "num_features": 175,
   "train_rows": 354324,
   "val_rows": 118108
 }

@@ -38,6 +38,8 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import StratifiedKFold
 
+from ml.preprocessing import FeaturePipeline
+
 warnings.filterwarnings("ignore", category=UserWarning)
 
 logging.basicConfig(
@@ -320,17 +322,16 @@ class VibeCheckerTrainer:
         logger.info("  Best lgb_weight=%.2f  ROC-AUC=%.6f", best_w, best_auc)
         return float(round(best_w, 2))
 
-    def train(self, df_train, df_val, n_folds=3):
+    def train(self, X_train, y_train, X_val, y_val, n_folds=3):
         logger.info("=" * 70)
         logger.info("VIBE CHECKER — XGBoost + LightGBM Ensemble")
         logger.info("=" * 70)
 
-        X_train, y_train = self.extract_features(df_train, fit=True)
-        X_val, y_val = self.extract_features(df_val, fit=False)
-        X_tr = X_train.values.astype(np.float32)
-        X_va = X_val.values.astype(np.float32)
-        y_tr = y_train.astype(np.int32)
-        y_va = y_val.astype(np.int32)
+        self.feature_columns = list(X_train.columns) if hasattr(X_train, 'columns') else []
+        X_tr = X_train.values.astype(np.float32) if hasattr(X_train, 'values') else np.asarray(X_train, dtype=np.float32)
+        X_va = X_val.values.astype(np.float32) if hasattr(X_val, 'values') else np.asarray(X_val, dtype=np.float32)
+        y_tr = np.asarray(y_train, dtype=np.int32)
+        y_va = np.asarray(y_val, dtype=np.int32)
 
         lgb_model, lgb_cv = self._train_lgb(X_tr, y_tr, X_va, y_va, n_folds)
         try:
@@ -407,7 +408,6 @@ ERA_NUM_FEATURES = [
     "amt_ratio_user_mean",    # ratio to user's mean amount
     "amt_ratio_user_median",  # ratio to user's median amount
     "amt_ratio_user_max",     # ratio to user's max amount
-    "amt_log",                # log1p of current amount
     # Velocity features (user's recent activity)
     "user_txn_count_24h",     # number of user txns in 24h window
     "user_txn_count_1h",      # number of user txns in 1h window
@@ -433,15 +433,6 @@ ERA_NUM_FEATURES = [
     "product_diversity_24h",  # distinct ProductCD in 24h window
     "burst_amt_10min",        # total amount in last 10 minutes
 ]
-
-# Categorical features (CatBoost handles natively)
-ERA_CAT_FEATURES = [
-    "ProductCD",
-    "card4",
-    "card6",
-]
-
-ERA_ALL_FEATURES = ERA_NUM_FEATURES + ERA_CAT_FEATURES
 
 
 def _engineer_era_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -506,7 +497,6 @@ def _engineer_era_features(df: pd.DataFrame) -> pd.DataFrame:
             ratio_mean = min(cur_amt / (w_mean or 1.0), 100.0)
             ratio_median = min(cur_amt / (w_median or 1.0), 100.0)
             ratio_max = min(cur_amt / (w_max or 1.0), 100.0)
-            amt_log = float(np.log1p(max(cur_amt, 0)))
 
             # Velocity
             tc_1h = len(hist_1h)
@@ -561,7 +551,7 @@ def _engineer_era_features(df: pd.DataFrame) -> pd.DataFrame:
             burst_10m = float(amt_arr[hist_10m].sum()) if hist_10m else 0.0
 
             num_result[i] = [
-                zscore, ratio_mean, ratio_median, ratio_max, amt_log,
+                zscore, ratio_mean, ratio_median, ratio_max,
                 wc, tc_1h, w_total, w_mean, w_max, w_std,
                 tsl, a_gap, mn_gap,
                 hour_sin, hour_cos, is_night, is_wknd,
@@ -570,48 +560,37 @@ def _engineer_era_features(df: pd.DataFrame) -> pd.DataFrame:
             ]
 
     out = pd.DataFrame(num_result, columns=ERA_NUM_FEATURES)
-
-    # Add categorical columns
-    if "ProductCD" in df.columns:
-        out["ProductCD"] = df["ProductCD"].fillna("unknown").astype(str).values
-    else:
-        out["ProductCD"] = "unknown"
-    if "card4" in df.columns:
-        out["card4"] = df["card4"].fillna("unknown").astype(str).values
-    else:
-        out["card4"] = "unknown"
-    if "card6" in df.columns:
-        out["card6"] = df["card6"].fillna("unknown").astype(str).values
-    else:
-        out["card6"] = "unknown"
-
-    out["isFraud"] = df["isFraud"].values
-    logger.info("  Generated %d rows × %d features (%d num + %d cat)",
-                len(out), len(ERA_ALL_FEATURES), len(ERA_NUM_FEATURES), len(ERA_CAT_FEATURES))
+    logger.info("  Generated %d rows × %d sliding-window features",
+                len(out), len(ERA_NUM_FEATURES))
     return out
 
 
-def train_era_tracker(df_train, df_val, n_folds=3):
+def train_era_tracker(X_train_pipe, df_train, X_val_pipe, df_val, n_folds=3):
     from catboost import CatBoostClassifier, Pool
 
     logger.info("=" * 70)
-    logger.info("ERA TRACKER (CatBoost) — %d behavioral features", len(ERA_ALL_FEATURES))
+    logger.info("ERA TRACKER (CatBoost) — sliding-window + pipeline features")
     logger.info("=" * 70)
 
-    era_train = _engineer_era_features(df_train)
-    era_val = _engineer_era_features(df_val)
+    # Engineer sliding-window features from raw data
+    df_train_t = add_time_features(df_train.copy())
+    df_val_t = add_time_features(df_val.copy())
+    era_train = _engineer_era_features(df_train_t)
+    era_val = _engineer_era_features(df_val_t)
 
-    X_train = era_train[ERA_ALL_FEATURES].copy()
-    y_train = era_train["isFraud"].values.astype(np.int32)
-    X_val = era_val[ERA_ALL_FEATURES].copy()
-    y_val = era_val["isFraud"].values.astype(np.int32)
+    # Concatenate pipeline features + sliding-window features
+    X_train = pd.concat([X_train_pipe.reset_index(drop=True),
+                         era_train.reset_index(drop=True)], axis=1)
+    X_val = pd.concat([X_val_pipe.reset_index(drop=True),
+                       era_val.reset_index(drop=True)], axis=1)
+    all_features = list(X_train.columns)
+    y_train = df_train["isFraud"].values.astype(np.int32)
+    y_val = df_val["isFraud"].values.astype(np.int32)
 
-    cat_indices = [ERA_ALL_FEATURES.index(c) for c in ERA_CAT_FEATURES]
-
-    logger.info("  Train: %d  Val: %d  Fraud rate: %.2f%%  Cat indices: %s",
-                len(X_train), len(X_val), y_train.mean() * 100, cat_indices)
-
-    scale_pw = float((y_train == 0).sum() / max((y_train == 1).sum(), 1))
+    logger.info("  Combined: %d pipeline + %d sliding-window = %d features",
+                X_train_pipe.shape[1], len(ERA_NUM_FEATURES), len(all_features))
+    logger.info("  Train: %d  Val: %d  Fraud rate: %.2f%%",
+                len(X_train), len(X_val), y_train.mean() * 100)
 
     model = CatBoostClassifier(
         iterations=2000,
@@ -621,15 +600,14 @@ def train_era_tracker(df_train, df_val, n_folds=3):
         random_seed=42,
         auto_class_weights="Balanced",
         eval_metric="AUC",
-        cat_features=cat_indices,
         verbose=200,
         early_stopping_rounds=200,
         use_best_model=True,
         task_type="CPU",
     )
 
-    train_pool = Pool(X_train, label=y_train, cat_features=cat_indices)
-    val_pool = Pool(X_val, label=y_val, cat_features=cat_indices)
+    train_pool = Pool(X_train, label=y_train)
+    val_pool = Pool(X_val, label=y_val)
 
     model.fit(train_pool, eval_set=val_pool)
 
@@ -644,7 +622,7 @@ def train_era_tracker(df_train, df_val, n_folds=3):
 
     # Feature importance
     fi = model.get_feature_importance()
-    fi_sorted = sorted(zip(ERA_ALL_FEATURES, fi), key=lambda x: -x[1])
+    fi_sorted = sorted(zip(all_features, fi), key=lambda x: -x[1])
     logger.info("  Feature importance (top 15):")
     for fname, imp in fi_sorted[:15]:
         logger.info("    %-30s  %.1f", fname, imp)
@@ -660,10 +638,10 @@ def train_era_tracker(df_train, df_val, n_folds=3):
         "model_type": "catboost",
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "best_threshold": round(thr, 6),
-        "num_features": len(ERA_NUM_FEATURES),
-        "cat_features": ERA_CAT_FEATURES,
-        "all_features": ERA_ALL_FEATURES,
-        "cat_indices": cat_indices,
+        "num_features": len(all_features),
+        "pipeline_features": int(X_train_pipe.shape[1]),
+        "sliding_window_features": ERA_NUM_FEATURES,
+        "all_features": all_features,
         **{k: round(v, 6) if isinstance(v, float) else v for k, v in met.items()},
         "best_iteration": model.get_best_iteration(),
         "train_rows": int(len(y_train)),
@@ -688,7 +666,6 @@ OG_FEATURES = [
     "rule_email_mismatch",
     "rule_no_device_high_value",
     "rule_is_night",
-    "rule_amount_log",
     "rule_addr_missing",
     "rule_card_not_visa",
     # --- NEW high-signal features ---
@@ -742,7 +719,6 @@ def _engineer_og_features(df: pd.DataFrame, thresholds: Dict[str, float]) -> pd.
     device_info = df.get("DeviceInfo", pd.Series(dtype=str)).fillna("")
     f["rule_no_device_high_value"] = ((device_info == "") & (amt > 500)).astype(np.int8)
     f["rule_is_night"] = df["is_night"].fillna(0).astype(np.int8) if "is_night" in df.columns else pd.Series(0, index=df.index)
-    f["rule_amount_log"] = np.log1p(amt.clip(lower=0))
     f["rule_addr_missing"] = df.get("addr1", pd.Series(dtype=float)).isna().astype(np.int8)
 
     card4 = df.get("card4", pd.Series(dtype=str)).fillna("unknown")
@@ -778,22 +754,34 @@ def _engineer_og_features(df: pd.DataFrame, thresholds: Dict[str, float]) -> pd.
     return f
 
 
-def train_og_check(df_train, df_val):
+def train_og_check(X_train_pipe, df_train, X_val_pipe, df_val):
     logger.info("=" * 70)
-    logger.info("OG CHECK — LightGBM on 20 rule + data-signal features")
+    logger.info("OG CHECK — LightGBM on rule + pipeline features")
     logger.info("=" * 70)
 
-    thresholds = _learn_thresholds(df_train)
+    # Learn thresholds from raw training data
+    df_train_t = add_time_features(df_train.copy())
+    df_val_t = add_time_features(df_val.copy())
+    thresholds = _learn_thresholds(df_train_t)
     logger.info("  Learned thresholds: %s", thresholds)
 
-    feat_train = _engineer_og_features(df_train, thresholds)
-    feat_val = _engineer_og_features(df_val, thresholds)
+    # Engineer deterministic rule features from raw data
+    feat_train = _engineer_og_features(df_train_t, thresholds)
+    feat_val = _engineer_og_features(df_val_t, thresholds)
 
-    X_train = feat_train[OG_FEATURES].fillna(0).astype(np.float32).values
+    # Concatenate pipeline features + rule features
+    X_train = pd.concat([X_train_pipe.reset_index(drop=True),
+                         feat_train[OG_FEATURES].reset_index(drop=True)], axis=1)
+    X_val = pd.concat([X_val_pipe.reset_index(drop=True),
+                       feat_val[OG_FEATURES].reset_index(drop=True)], axis=1)
+    all_features = list(X_train.columns)
+    X_train = X_train.fillna(0).astype(np.float32).values
     y_train = df_train["isFraud"].values.astype(np.int32)
-    X_val = feat_val[OG_FEATURES].fillna(0).astype(np.float32).values
+    X_val = X_val.fillna(0).astype(np.float32).values
     y_val = df_val["isFraud"].values.astype(np.int32)
 
+    logger.info("  Combined: %d pipeline + %d rule = %d features",
+                X_train_pipe.shape[1], len(OG_FEATURES), len(all_features))
     logger.info("  Train: %d  Val: %d  Fraud rate: %.2f%%",
                 len(X_train), len(X_val), y_train.mean() * 100)
 
@@ -820,8 +808,8 @@ def train_og_check(df_train, df_val):
     skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
     cv_auc = []
     for fold, (tr_idx, va_idx) in enumerate(skf.split(X_train, y_train), 1):
-        d_tr = lgb.Dataset(X_train[tr_idx], label=y_train[tr_idx], feature_name=OG_FEATURES)
-        d_va = lgb.Dataset(X_train[va_idx], label=y_train[va_idx], reference=d_tr, feature_name=OG_FEATURES)
+        d_tr = lgb.Dataset(X_train[tr_idx], label=y_train[tr_idx], feature_name=all_features)
+        d_va = lgb.Dataset(X_train[va_idx], label=y_train[va_idx], reference=d_tr, feature_name=all_features)
         m = lgb.train(params, d_tr, num_boost_round=500,
                       valid_sets=[d_va],
                       callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)])
@@ -832,8 +820,8 @@ def train_og_check(df_train, df_val):
     logger.info("  CV ROC-AUC: %.4f ± %.4f", np.mean(cv_auc), np.std(cv_auc))
 
     # Final model
-    d_tr = lgb.Dataset(X_train, label=y_train, feature_name=OG_FEATURES)
-    d_va = lgb.Dataset(X_val, label=y_val, reference=d_tr, feature_name=OG_FEATURES)
+    d_tr = lgb.Dataset(X_train, label=y_train, feature_name=all_features)
+    d_va = lgb.Dataset(X_val, label=y_val, reference=d_tr, feature_name=all_features)
     model = lgb.train(params, d_tr, num_boost_round=500,
                       valid_sets=[d_tr, d_va],
                       callbacks=[lgb.early_stopping(50), lgb.log_evaluation(50)])
@@ -847,9 +835,9 @@ def train_og_check(df_train, df_val):
 
     # Feature importance
     fi = model.feature_importance(importance_type="gain")
-    fi_sorted = sorted(zip(OG_FEATURES, fi), key=lambda x: -x[1])
-    logger.info("  Feature importance:")
-    for fname, imp in fi_sorted:
+    fi_sorted = sorted(zip(all_features, fi), key=lambda x: -x[1])
+    logger.info("  Feature importance (top 20):")
+    for fname, imp in fi_sorted[:20]:
         logger.info("    %-30s  gain=%.1f", fname, imp)
 
     log_metrics_to_file("OG Check", met, y_val, val_scores, thr)
@@ -863,7 +851,8 @@ def train_og_check(df_train, df_val):
     params_data = {
         "thresholds": thresholds,
         "og_model_path": "og_check_lgb.txt",
-        "features": OG_FEATURES,
+        "features": all_features,
+        "rule_features": OG_FEATURES,
         "best_threshold": round(thr, 6),
         "metrics": {k: round(v, 6) if isinstance(v, float) else v for k, v in met.items()},
         "cv_roc_auc": [round(x, 6) for x in cv_auc],
@@ -884,22 +873,51 @@ def main():
     parser.add_argument("--folds", type=int, default=3, help="CV folds (default: 3)")
     args = parser.parse_args()
 
+    # ------------------------------------------------------------------
+    # Load and merge each split
+    # ------------------------------------------------------------------
     df_train = load_split("train")
-    df_train = add_time_features(df_train)
     df_val = load_split("val")
-    df_val = add_time_features(df_val)
+    df_test = load_split("test")
+
+    # ------------------------------------------------------------------
+    # Central preprocessing — fit() ONLY on training data
+    # ------------------------------------------------------------------
+    y_train = df_train["isFraud"]
+    pipeline = FeaturePipeline()
+    X_train = pipeline.fit_transform(df_train, y_train)
+    X_val = pipeline.transform(df_val)
+    X_test = pipeline.transform(df_test)
+    pipeline.save("models/feature_pipeline.pkl")
+    logger.info("FeaturePipeline: %d train / %d val / %d test features",
+                X_train.shape[1], X_val.shape[1], X_test.shape[1])
+
+    y_train_arr = df_train["isFraud"].values
+    y_val_arr = df_val["isFraud"].values
+    y_test_arr = df_test["isFraud"].values if "isFraud" in df_test.columns else None
 
     results = {}
 
+    # ------------------------------------------------------------------
+    # 1. Vibe Checker — trains on pipeline features
+    # ------------------------------------------------------------------
     if args.agent in (None, "vibe"):
         vt = VibeCheckerTrainer()
-        results["vibe_checker"] = vt.train(df_train, df_val, n_folds=args.folds)
+        results["vibe_checker"] = vt.train(X_train, y_train_arr, X_val, y_val_arr,
+                                           n_folds=args.folds)
 
+    # ------------------------------------------------------------------
+    # 2. Era Tracker — sliding-window features + pipeline features
+    # ------------------------------------------------------------------
     if args.agent in (None, "era"):
-        results["era_tracker"] = train_era_tracker(df_train, df_val, n_folds=args.folds)
+        results["era_tracker"] = train_era_tracker(X_train, df_train, X_val, df_val,
+                                                   n_folds=args.folds)
 
+    # ------------------------------------------------------------------
+    # 3. OG Check — deterministic rules + pipeline features
+    # ------------------------------------------------------------------
     if args.agent in (None, "og"):
-        results["og_check"] = train_og_check(df_train, df_val)
+        results["og_check"] = train_og_check(X_train, df_train, X_val, df_val)
 
     logger.info("\n" + "=" * 70)
     logger.info("TRAINING COMPLETE")

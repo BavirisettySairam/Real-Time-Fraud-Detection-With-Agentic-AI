@@ -26,6 +26,33 @@ The original Kaggle test set (unlabelled) is retained as `data/final_transaction
 
 ---
 
+## Preprocessing Pipeline
+
+All agents share a common `FeaturePipeline` (`ml/preprocessing/feature_pipeline.py`) that transforms raw transaction + identity data into 175 clean features. The pipeline is fitted once during training and serialised to `models/feature_pipeline.pkl` for inference.
+
+### Pipeline Steps
+
+1. **NaN / Inf handling** — Replace `inf`/`-inf` with `NaN`, drop columns > 90% missing.
+2. **Imputation** — Median for numeric, mode for categorical.
+3. **Target encoding** — Smoothed target encoding for high-cardinality categoricals (card1–6, addr1–2, P/R_emaildomain, etc.).
+4. **Feature engineering** — `TransactionAmt_log`, `TransactionAmt_cents`, time features (`hour`, `day`, `is_weekend`, `is_night`), interaction features, missing-count indicators.
+5. **Feature selection** — Remove zero-variance and highly correlated (>0.95) features.
+
+### Output
+
+| Metric | Value |
+|---|---|
+| Input columns (raw) | 209 baseline |
+| Output features | 175 |
+| Artifact | `models/feature_pipeline.pkl` |
+
+Each agent then adds its own specialised features on top of the 175 pipeline features:
+- **Vibe Checker**: Uses 175 pipeline features directly.
+- **Era Tracker**: 175 pipeline + 24 sliding-window behavioural features = **199 total**.
+- **OG Check**: 175 pipeline + 19 rule-engineered features = **194 total**.
+
+---
+
 ## Training Pipeline
 
 All training is handled by `train_agents.py` with CLI arguments:
@@ -58,15 +85,14 @@ Each training run produces:
 | LightGBM objective | `binary` (log loss) |
 | XGBoost objective | `binary:logistic` |
 | Cross-validation | Stratified K-Fold |
-| Feature count | 445 |
+| Feature count | 175 (from FeaturePipeline) |
 | Blend weights | 90% LightGBM / 10% XGBoost (optimised via grid search) |
 
 **Feature engineering:**
-- `TransactionAmt_log`, `TransactionAmt_sqrt`, `TransactionAmt_cents`
-- `hour`, `day`, `is_weekend`, `is_night` (from `TransactionDT`)
-- `card_addr_combo`, `email_domain_pair` (hashed combinations)
-- `missing_count` (number of null fields)
-- Interaction features: `night_x_amount`, `addr_missing_x_amount`, `device_missing_x_amount`
+- All 175 features from FeaturePipeline (see Preprocessing Pipeline section above)
+- Includes `TransactionAmt_log`, `TransactionAmt_sqrt`, `TransactionAmt_cents`
+- Time features: `hour`, `day`, `is_weekend`, `is_night`
+- Target-encoded categoricals, interaction features, missing-count indicators
 
 **Artifacts:** `models/vibe_lgb.txt`, `models/vibe_xgb.json`, `models/vibe_metrics.json`
 
@@ -78,10 +104,11 @@ Each training run produces:
 | Class weights | `auto_class_weights="Balanced"` |
 | Depth | 8 |
 | Iterations | 2000 (early stopping) |
-| Feature count | 25 numeric + 3 categorical = 28 |
+| Feature count | 175 pipeline + 24 sliding-window = 199 |
 
-**Numeric features (25):**
-`amt_zscore_user`, `amt_ratio_user_mean`, `amt_ratio_user_median`, `amt_ratio_user_max`, `amt_log`, `user_txn_count_24h`, `user_txn_count_1h`, `user_total_amt_24h`, `user_mean_amt_24h`, `user_max_amt_24h`, `user_std_amt_24h`, `time_since_last`, `avg_gap_24h`, `min_gap_24h`, `hour_sin`, `hour_cos`, `is_night`, `is_weekend`, `rapid_succession`, `is_new_user`, `night_first_time`, `increasing_amounts`, `hour_deviation`, `product_diversity_24h`, `burst_amt_10min`
+**Numeric features (25 sliding-window + 175 pipeline):**
+Pipeline provides 175 base features. Era Tracker adds 24 sliding-window behavioural features:
+`amt_zscore_user`, `amt_ratio_user_mean`, `amt_ratio_user_median`, `amt_ratio_user_max`, `amt_log`, `user_txn_count_24h`, `user_txn_count_1h`, `user_total_amt_24h`, `user_mean_amt_24h`, `user_max_amt_24h`, `user_std_amt_24h`, `time_since_last`, `avg_gap_24h`, `min_gap_24h`, `hour_sin`, `hour_cos`, `is_night`, `is_weekend`, `rapid_succession`, `is_new_user`, `night_first_time`, `increasing_amounts`, `hour_deviation`, `product_diversity_24h`
 
 **Categorical features (3):** `ProductCD`, `card4`, `card6`
 
@@ -92,11 +119,12 @@ Each training run produces:
 | Parameter | Value |
 |---|---|
 | Model | LightGBM |
-| Feature count | 20 |
+| Feature count | 175 pipeline + 19 rule-engineered = 194 |
 | Threshold | Optimised via F1 grid search |
 
-**Features (20):**
-12 binary rule indicators (`HIGH_AMOUNT`, `MAX_AMOUNT`, `LATE_NIGHT`, `MISSING_EMAIL`, `MISSING_ADDR`, `MISSING_DEVICE`, `VELOCITY_TXN_COUNT`, `VELOCITY_AMOUNT_1H`, `CARD_FREQ_LOW`, `AMOUNT_ROUND`, `SUSPICIOUS_DOMAIN`, `RISKY_PRODUCT`) + 8 engineered (`addr2_missing`, `D1_missing`, `D1_high`, `C1_high`, `C13_high`, `M_mismatch_count`, `id_missing`, `moderate_spike`)
+**Features (19 rule-engineered + 175 pipeline):**
+Pipeline provides 175 base features. OG Check adds 19 rule-engineered features:
+12 binary rule indicators (`HIGH_AMOUNT`, `MAX_AMOUNT`, `LATE_NIGHT`, `MISSING_EMAIL`, `MISSING_ADDR`, `MISSING_DEVICE`, `VELOCITY_TXN_COUNT`, `VELOCITY_AMOUNT_1H`, `CARD_FREQ_LOW`, `AMOUNT_ROUND`, `SUSPICIOUS_DOMAIN`, `RISKY_PRODUCT`) + 7 engineered (`addr2_missing`, `D1_missing`, `D1_high`, `C1_high`, `C13_high`, `M_mismatch_count`, `id_missing`)
 
 **Artifacts:** `models/og_check_lgb.txt`, `models/og_check_params.json`
 
@@ -106,11 +134,11 @@ Each training run produces:
 
 | Agent | ROC-AUC | PR-AUC | Precision | Recall | F1 | Threshold |
 |---|---:|---:|---:|---:|---:|---:|
-| Vibe Checker (Ensemble) | 0.9706 | 0.8570 | 0.8731 | 0.7643 | 0.8151 | 0.4626 |
+| Vibe Checker (Ensemble) | 0.8991 | 0.6001 | 0.7714 | 0.4794 | 0.5913 | 0.8109 |
 | Vibe Checker (LGB only) | 0.9699 | 0.8585 | 0.8782 | 0.7592 | 0.8144 | 0.4626 |
 | Vibe Checker (XGB only) | 0.9669 | 0.8142 | 0.6118 | 0.8100 | 0.6971 | 0.4626 |
-| OG Check | 0.7833 | 0.2311 | 0.2593 | 0.2374 | 0.2479 | 0.7890 |
-| Era Tracker (CatBoost) | 0.7813 | 0.1612 | 0.1931 | 0.3183 | 0.2404 | 0.7587 |
+| OG Check | 0.8903 | 0.5352 | 0.6678 | 0.4417 | 0.5317 | 0.8144 |
+| Era Tracker (CatBoost) | 0.8773 | 0.5162 | 0.6572 | 0.4240 | 0.5154 | 0.8063 |
 
 ### Confusion Matrices
 
@@ -144,18 +172,22 @@ Training iterations documenting progressive improvements:
 |---|---|---:|---:|---:|---:|
 | v1 | LightGBM (18 features) | 0.7077 | 0.0893 | 0.0985 | 0.073 |
 | v2 | LightGBM (26 features, velocity) | 0.7077 | 0.0893 | 0.0985 | 0.073 |
-| **v3** | **CatBoost (28 features)** | **0.7813** | **0.1612** | **0.2404** | **0.318** |
+| v3 | CatBoost (28 features) | 0.7813 | 0.1612 | 0.2404 | 0.318 |
+| **v4** | **CatBoost (199 features, pipeline)** | **0.8773** | **0.5162** | **0.5154** | **0.424** |
 
 Key change in v3: switched to CatBoost with native categorical handling, added circular time encoding, redesigned behavioural feature set.
+Key change in v4: retrained on 175 FeaturePipeline features + 24 sliding-window features. PR-AUC +220%, F1 +114%.
 
 ### OG Check
 
 | Version | Model | ROC-AUC | PR-AUC | F1 |
 |---|---|---:|---:|---:|
 | v1 | Logistic Regression (12 rules) | 0.7039 | 0.0924 | 0.0086 |
-| **v2** | **LightGBM (20 features)** | **0.7833** | **0.2311** | **0.2479** |
+| v2 | LightGBM (20 features) | 0.7833 | 0.2311 | 0.2479 |
+| **v3** | **LightGBM (194 features, pipeline)** | **0.8903** | **0.5352** | **0.5317** |
 
 Key change in v2: replaced logistic regression with LightGBM, added 8 engineered features from transaction data signals.
+Key change in v3: retrained on 175 FeaturePipeline features + 19 rule features. PR-AUC +132%, F1 +114%.
 
 ---
 

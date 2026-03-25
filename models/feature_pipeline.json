@@ -1,0 +1,19 @@
+{
+  "baseline_features": 209,
+  "missingness_indicators": 194,
+  "frequency_encodings": 0,
+  "target_encodings": 0,
+  "final_feature_count": 175,
+  "thresholds": {
+    "missing": 0.95,
+    "correlation": 0.98,
+    "info_gain": 0.001,
+    "missingness_indicator": 0.2
+  },
+  "pipeline_steps": {
+    "step1_after_missing_removal": 422,
+    "step2_after_variance_removal": 422,
+    "step3_after_correlation_removal": 347,
+    "step4_baseline": 209
+  }
+}

@@ -151,7 +151,15 @@ class EraTracker:
     # Analysis entry point
     # ------------------------------------------------------------------
 
-    def analyze(self, transaction: Dict[str, Any]) -> EraTrackerResult:
+    def analyze(self, transaction: Dict[str, Any], pipeline_features: Optional[np.ndarray] = None) -> EraTrackerResult:
+        """Analyse a transaction using pipeline features + sliding-window features.
+
+        Args:
+            transaction: Raw transaction dict (used for sliding-window computation
+                         and heuristic fallback).
+            pipeline_features: 1-D array of preprocessed features from the
+                               centralised FeaturePipeline (175 features).
+        """
         # Defensively replace None values with safe defaults so downstream
         # float()/int() calls never receive NoneType.
         transaction = {
@@ -165,9 +173,13 @@ class EraTracker:
 
         pattern_deviations = self._detect_pattern_deviations(transaction, history)
 
-        if self.model is not None:
-            features = self._build_model_features(transaction, history)
-            proba = self.model.predict_proba([features])
+        if self.model is not None and pipeline_features is not None:
+            sliding = self._build_sliding_window_features(transaction, history)
+            combined = np.concatenate([
+                np.asarray(pipeline_features, dtype=np.float64).ravel(),
+                np.asarray(sliding, dtype=np.float64),
+            ])
+            proba = self.model.predict_proba([combined])
             raw = float(proba[0][1]) if len(proba[0]) > 1 else float(proba[0][0])
             fraud_score = max(0.0, min(raw, 1.0))
             anomaly_score = fraud_score
@@ -190,10 +202,10 @@ class EraTracker:
     # Feature engineering (must match training)
     # ------------------------------------------------------------------
 
-    def _build_model_features(
+    def _build_sliding_window_features(
         self, transaction: Dict[str, Any], history: List[Dict[str, Any]]
-    ) -> List:
-        """Build 28-element feature vector (25 numeric + 3 categorical) for CatBoost."""
+    ) -> List[float]:
+        """Build 24 sliding-window behavioural features (must match training order)."""
         amt = float(transaction.get("TransactionAmt", 0))
         hist_amts = [float(h.get("TransactionAmt", 0)) for h in history]
 
@@ -209,7 +221,6 @@ class EraTracker:
         ratio_mean = min(amt / (w_mean or 1.0), 100.0)
         ratio_median = min(amt / (w_median or 1.0), 100.0)
         ratio_max = min(amt / (w_max or 1.0), 100.0)
-        amt_log = float(np.log1p(max(amt, 0)))
 
         current_dt = float(transaction.get("TransactionDT", 0))
         W_1H = 3600
@@ -272,21 +283,14 @@ class EraTracker:
         recent_10m = [h for h in history if float(h.get("TransactionDT", 0)) >= current_dt - W_10M]
         burst_10m = sum(float(h.get("TransactionAmt", 0)) for h in recent_10m)
 
-        # Categorical features
-        product_cd = str(transaction.get("ProductCD", "unknown") or "unknown")
-        card4 = str(transaction.get("card4", "unknown") or "unknown")
-        card6 = str(transaction.get("card6", "unknown") or "unknown")
-
-        # 25 numeric + 3 categorical = 28 total (must match training order)
+        # 24 numeric sliding-window features (must match training order)
         return [
-            zscore, ratio_mean, ratio_median, ratio_max, amt_log,
+            zscore, ratio_mean, ratio_median, ratio_max,
             wc, tc_1h, w_total, w_mean, w_max, w_std,
             tsl, a_gap, mn_gap,
             hour_sin, hour_cos, is_night, is_wknd,
             rapid, is_new, night_first, incr,
             h_dev, prod_div, burst_10m,
-            # categoricals
-            product_cd, card4, card6,
         ]
 
     # ------------------------------------------------------------------

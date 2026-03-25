@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+import numpy as np
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +25,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
+from ml.preprocessing import FeaturePipeline
 from services.orchestrator import AgentOrchestrator, OrchestratorConfig
 
 try:
@@ -354,6 +357,12 @@ def create_app(settings: Optional[APISettings] = None) -> FastAPI:
                 timeout_ms=cfg.orchestrator_timeout_ms,
             )
         )
+        try:
+            app_instance.state.pipeline = FeaturePipeline.load("models/feature_pipeline.pkl")
+            logger.info("FeaturePipeline loaded (%d features)", len(app_instance.state.pipeline.final_feature_names_))
+        except Exception as exc:
+            logger.warning("FeaturePipeline not available — agents will use fallbacks: %s", exc)
+            app_instance.state.pipeline = None
         logger.info(
             "API startup complete: batch_max_size=%s batch_max_workers=%s use_langgraph=%s",
             cfg.batch_max_size,
@@ -383,6 +392,7 @@ def create_app(settings: Optional[APISettings] = None) -> FastAPI:
     app.state.settings = cfg
     app.state.started_monotonic = time.monotonic()
     app.state.orchestrator = None
+    app.state.pipeline = None
 
     # -- Rate limiter setup --------------------------------------------------
     if SLOWAPI_AVAILABLE:
@@ -517,6 +527,31 @@ def create_app(settings: Optional[APISettings] = None) -> FastAPI:
     _predict_decorator = limiter.limit(cfg.rate_limit_predict) if limiter else (lambda f: f)
     _explain_decorator = limiter.limit(cfg.rate_limit_explain) if limiter else (lambda f: f)
 
+    def _preprocess(txn_dict: Dict[str, Any]) -> Optional[np.ndarray]:
+        """Run FeaturePipeline on a single transaction dict. Returns None on failure."""
+        pipeline = app.state.pipeline
+        if pipeline is None:
+            return None
+        try:
+            features_df = pipeline.transform(pd.DataFrame([txn_dict]))
+            return features_df.values[0].astype(np.float32)
+        except Exception as exc:
+            logger.warning("Pipeline transform failed: %s", exc)
+            return None
+
+    def _preprocess_batch(txn_dicts: List[Dict[str, Any]]) -> List[Optional[np.ndarray]]:
+        """Run FeaturePipeline on a batch of transaction dicts."""
+        pipeline = app.state.pipeline
+        if pipeline is None:
+            return [None] * len(txn_dicts)
+        try:
+            features_df = pipeline.transform(pd.DataFrame(txn_dicts))
+            arr = features_df.values.astype(np.float32)
+            return [arr[i] for i in range(len(arr))]
+        except Exception as exc:
+            logger.warning("Batch pipeline transform failed: %s", exc)
+            return [None] * len(txn_dicts)
+
     @app.post("/api/v1/predict", response_model=PredictionResponse, tags=["Predictions"])
     @_predict_decorator
     async def predict_fraud(request: Request, transaction: Transaction) -> PredictionResponse:
@@ -524,7 +559,8 @@ def create_app(settings: Optional[APISettings] = None) -> FastAPI:
         start = time.perf_counter()
 
         txn_dict = derive_time_features(transaction.model_dump())
-        result = await run_in_threadpool(orchestrator.analyze, txn_dict)
+        pipeline_features = _preprocess(txn_dict)
+        result = await run_in_threadpool(orchestrator.analyze, txn_dict, pipeline_features)
         response = _build_prediction_response(transaction, result)
 
         _observe_prediction_metrics(
@@ -548,11 +584,14 @@ def create_app(settings: Optional[APISettings] = None) -> FastAPI:
         start = time.perf_counter()
         semaphore = asyncio.Semaphore(cfg.batch_max_workers)
 
-        async def process_one(transaction: Transaction) -> PredictionResponse:
+        # Preprocess the entire batch in one call
+        txn_dicts = [derive_time_features(t.model_dump()) for t in batch.transactions]
+        all_features = await run_in_threadpool(_preprocess_batch, txn_dicts)
+
+        async def process_one(transaction: Transaction, txn_dict: Dict[str, Any], features: Optional[np.ndarray]) -> PredictionResponse:
             async with semaphore:
                 item_start = time.perf_counter()
-                txn_dict = derive_time_features(transaction.model_dump())
-                result = await run_in_threadpool(orchestrator.analyze, txn_dict)
+                result = await run_in_threadpool(orchestrator.analyze, txn_dict, features)
                 response = _build_prediction_response(transaction, result)
                 _observe_prediction_metrics(
                     endpoint="predict_batch",
@@ -561,7 +600,9 @@ def create_app(settings: Optional[APISettings] = None) -> FastAPI:
                 )
                 return response
 
-        predictions = await asyncio.gather(*(process_one(txn) for txn in batch.transactions))
+        predictions = await asyncio.gather(
+            *(process_one(txn, d, f) for txn, d, f in zip(batch.transactions, txn_dicts, all_features))
+        )
         total_time_ms = (time.perf_counter() - start) * 1000
 
         return BatchResponse(
@@ -636,7 +677,8 @@ def create_app(settings: Optional[APISettings] = None) -> FastAPI:
         start = time.perf_counter()
 
         txn_dict = derive_time_features(transaction.model_dump())
-        result = await run_in_threadpool(orchestrator.analyze, txn_dict)
+        pipeline_features = _preprocess(txn_dict)
+        result = await run_in_threadpool(orchestrator.analyze, txn_dict, pipeline_features)
 
         score = float(result.get("final_score", 0.5))
         details = result.get("explanation_details") or {}

@@ -236,9 +236,23 @@ def _run_local_fallback(transaction_data: dict) -> dict | None:
     """Run analysis locally when API is unreachable."""
     orchestrator = None
     try:
+        import numpy as np
+        from ml.preprocessing import FeaturePipeline
         from services.orchestrator import AgentOrchestrator
+
+        pipeline_path = Path(__file__).resolve().parents[1] / "models" / "feature_pipeline.pkl"
+        if not pipeline_path.exists():
+            st.error(
+                "Feature pipeline not found at `models/feature_pipeline.pkl`. "
+                "Run `python train_agents.py` to generate it before using local fallback."
+            )
+            return None
+
+        pipeline = FeaturePipeline.load(str(pipeline_path))
+        features = pipeline.transform(pd.DataFrame([transaction_data])).values[0].astype(np.float32)
+
         orchestrator = AgentOrchestrator()
-        result = orchestrator.analyze(transaction_data)
+        result = orchestrator.analyze(transaction_data, pipeline_features=features)
         score = result.get("final_score", 0.5)
         return {
             "transaction_id": transaction_data.get("TransactionID"),
@@ -489,8 +503,8 @@ def render_sidebar() -> str:
 
     # ---- Latency (real measured) ----
     st.sidebar.markdown('<p class="sidebar-section-title">Latency (measured)</p>', unsafe_allow_html=True)
-    st.sidebar.markdown("p50 **~620ms** · p95 **~780ms** · p99 **~880ms**")
-    st.sidebar.caption("Single uvicorn worker, local dev. Target: 200–300ms in production.")
+    st.sidebar.markdown("p50 **~880ms** · p95 **~1500ms** · p99 **~1700ms**")
+    st.sidebar.caption("Single uvicorn worker, local dev incl. preprocessing pipeline. Target: 200–300ms in production.")
 
     # ---- Model Artifacts ----
     st.sidebar.markdown('<p class="sidebar-section-title">Model Artifacts</p>', unsafe_allow_html=True)

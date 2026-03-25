@@ -208,13 +208,23 @@ class TheYapper:
         prediction: float,
         agent_scores: Dict[str, float],
         violations: List[str],
+        pipeline_features: Optional[np.ndarray] = None,
     ) -> YapperResult:
-        """Run the full SHAP → LLM pipeline and return a structured result."""
+        """Run the full SHAP → LLM pipeline and return a structured result.
+
+        Args:
+            transaction: Raw transaction dict (for context in prompts).
+            prediction: Final fraud probability from decision fusion.
+            agent_scores: Per-agent scores.
+            violations: Rule violation names.
+            pipeline_features: 1-D array of preprocessed features from the
+                               centralised FeaturePipeline (175 features).
+        """
         if self._shap_explainer is None:
             self._init_shap_explainer()
 
         # Step 1 — SHAP feature attributions
-        feature_contributions = self._calculate_feature_contributions(transaction)
+        feature_contributions = self._calculate_feature_contributions(transaction, pipeline_features)
         shap_available = bool(
             self._shap_explainer is not None
             and feature_contributions
@@ -267,18 +277,19 @@ class TheYapper:
 
     def _calculate_feature_contributions(
         self, transaction: Dict[str, Any],
+        pipeline_features: Optional[np.ndarray] = None,
     ) -> List[FeatureContribution]:
-        if self._shap_explainer is not None and self.vibe_checker is not None:
-            shap_contribs = self._shap_contributions(transaction)
+        if self._shap_explainer is not None and self.vibe_checker is not None and pipeline_features is not None:
+            shap_contribs = self._shap_contributions(pipeline_features)
             if shap_contribs:
                 return shap_contribs
         return self._heuristic_contributions(transaction)
 
     def _shap_contributions(
-        self, transaction: Dict[str, Any],
+        self, pipeline_features: np.ndarray,
     ) -> List[FeatureContribution]:
         try:
-            vector = self.vibe_checker.vectorize_transaction(transaction)
+            vector = self.vibe_checker.vectorize_transaction(pipeline_features)
             shap_values = self._shap_explainer.shap_values(vector)
             shap_row = self._extract_shap_row(shap_values)
             if shap_row.size == 0:
@@ -319,7 +330,9 @@ class TheYapper:
         return np.asarray(arr, dtype=float)
 
     def _get_raw_feature_names(self, n: int) -> List[str]:
-        raw: Sequence[str] = getattr(self.vibe_checker, "feature_columns", []) or []
+        raw: Sequence[str] = []
+        if self.vibe_checker is not None:
+            raw = getattr(self.vibe_checker, "feature_columns", []) or []
         return [raw[i] if i < len(raw) else f"feature_{i}" for i in range(n)]
 
     def _heuristic_contributions(

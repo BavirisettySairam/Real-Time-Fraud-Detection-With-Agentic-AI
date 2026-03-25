@@ -9,6 +9,8 @@ import time
 import math
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
+import numpy as np
+
 # LangGraph imports (with fallback)
 try:
     from langgraph.graph import StateGraph, START, END
@@ -30,6 +32,7 @@ logger = logging.getLogger(__name__)
 class FraudState(TypedDict):
     """State for the fraud detection workflow"""
     transaction: Dict[str, Any]
+    pipeline_features: Optional[Any]  # np.ndarray from FeaturePipeline
     vibe_score: Optional[float]
     vibe_explanation: Optional[str]
     vibe_models_loaded: Optional[Dict[str, bool]]
@@ -109,7 +112,7 @@ class AgentOrchestrator:
             max_workers=max(3, self.config.parallel_workers),
             thread_name_prefix="fraud-agent"
         )
-        
+
         # Initialize agents
         self.vibe_checker = VibeChecker()
         self.era_tracker = EraTracker()
@@ -157,7 +160,13 @@ class AgentOrchestrator:
     def _vibe_check_node(self, state: FraudState) -> Dict[str, Any]:
         """Vibe Checker — ML Ensemble (XGBoost + LightGBM) inference."""
         try:
-            result = self._invoke_with_timeout(self.vibe_checker.analyze, state['transaction'])
+            features = state.get('pipeline_features')
+            if features is not None:
+                result = self._invoke_with_timeout(self.vibe_checker.analyze, features)
+            else:
+                result = self._invoke_with_timeout(
+                    self.vibe_checker.analyze, np.zeros(self.vibe_checker.num_features, dtype=np.float32)
+                )
             return {
                 'vibe_score': result.fraud_score,
                 'vibe_explanation': result.explanation,
@@ -181,7 +190,11 @@ class AgentOrchestrator:
     def _era_track_node(self, state: FraudState) -> Dict[str, Any]:
         """Era Tracker — 24hr window behavioural analysis."""
         try:
-            result = self._invoke_with_timeout(self.era_tracker.analyze, state['transaction'])
+            features = state.get('pipeline_features')
+            result = self._invoke_with_timeout(
+                lambda txn: self.era_tracker.analyze(txn, pipeline_features=features),
+                state['transaction'],
+            )
             return {
                 'era_score': result.fraud_score,
                 'era_explanation': result.explanation
@@ -202,7 +215,11 @@ class AgentOrchestrator:
     def _og_check_node(self, state: FraudState) -> Dict[str, Any]:
         """OG Check — rule-based analysis."""
         try:
-            result = self._invoke_with_timeout(self.og_check.analyze, state['transaction'])
+            features = state.get('pipeline_features')
+            result = self._invoke_with_timeout(
+                lambda txn: self.og_check.analyze(txn, pipeline_features=features),
+                state['transaction'],
+            )
             violations = [v.rule_name for v in result.violations]
             return {
                 'og_score': result.fraud_score,
@@ -305,7 +322,8 @@ class AgentOrchestrator:
                 transaction=state['transaction'],
                 prediction=state.get('final_score', 0.5),
                 agent_scores=agent_scores,
-                violations=state.get('og_violations', [])
+                violations=state.get('og_violations', []),
+                pipeline_features=state.get('pipeline_features'),
             )
             
             details = result.to_dict()
@@ -321,21 +339,27 @@ class AgentOrchestrator:
                 'explanation_details': None,
             }
     
-    def analyze(self, transaction: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze(self, transaction: Dict[str, Any], pipeline_features: Optional[Any] = None) -> Dict[str, Any]:
         """
-        Run complete fraud analysis on a transaction
+        Run complete fraud analysis on a transaction.
         
         Args:
-            transaction: Transaction data dictionary
-            
+            transaction: Transaction data dictionary (with derived time features).
+            pipeline_features: Pre-computed pipeline features (np.ndarray from
+                               FeaturePipeline.transform).  When called from the
+                               API gateway this is always supplied; standalone
+                               callers may pass None and agents will fall back
+                               to heuristic scoring.
+        
         Returns:
-            Complete analysis result with scores and explanation
+            Complete analysis result with scores and explanation.
         """
         start_time = time.time()
-        
+
         # Initial state
         initial_state: FraudState = {
             'transaction': transaction,
+            'pipeline_features': pipeline_features,
             'vibe_score': None,
             'vibe_explanation': None,
             'vibe_models_loaded': None,
@@ -382,11 +406,13 @@ class AgentOrchestrator:
     def _run_parallel_agents(self, state: FraudState) -> Dict[str, Any]:
         """Run Vibe Checker + Era Tracker + OG Check concurrently."""
         txn = state['transaction']
+        features = state.get('pipeline_features')
         timeout_seconds = self.config.timeout_ms / 1000.0
         futures = {
-            'vibe': self._executor.submit(self.vibe_checker.analyze, txn),
-            'era': self._executor.submit(self.era_tracker.analyze, txn),
-            'og': self._executor.submit(self.og_check.analyze, txn),
+            'vibe': self._executor.submit(self.vibe_checker.analyze,
+                                          features if features is not None else np.zeros(self.vibe_checker.num_features, dtype=np.float32)),
+            'era': self._executor.submit(self.era_tracker.analyze, txn, features),
+            'og': self._executor.submit(self.og_check.analyze, txn, features),
         }
 
         results: Dict[str, Any] = {
@@ -434,9 +460,9 @@ class AgentOrchestrator:
 
         return results
 
-    def _invoke_with_timeout(self, fn: Any, transaction: Dict[str, Any]) -> Any:
+    def _invoke_with_timeout(self, fn: Any, *args: Any) -> Any:
         """Invoke an agent function with timeout enforcement."""
-        future = self._executor.submit(fn, transaction)
+        future = self._executor.submit(fn, *args)
         return future.result(timeout=self.config.timeout_ms / 1000.0)
 
     def close(self) -> None:

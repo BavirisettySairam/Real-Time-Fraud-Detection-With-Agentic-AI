@@ -38,12 +38,12 @@ class _DummyVibeResult:
 
 
 class _EraTracker:
-    def analyze(self, _txn):
+    def analyze(self, _txn, pipeline_features=None):
         return _DummyResult(0.2, "era")
 
 
 class _OGCheck:
-    def analyze(self, _txn):
+    def analyze(self, _txn, pipeline_features=None):
         return _DummyOGResult(0.5, [_DummyRuleViolation("HIGH_AMOUNT")], "og")
 
 
@@ -51,16 +51,23 @@ class _TheYapper:
     class _Exp:
         natural_language_explanation = "combined explanation"
 
+        def to_dict(self):
+            return {"summary": self.natural_language_explanation}
+
     def explain(self, **_kwargs):
         return self._Exp()
 
 
 class _VibeChecker:
+    num_features = 175
+    feature_columns = [f"f_{i}" for i in range(175)]
+    lgb_model = None
+
     def __init__(self, score: float = 0.9, loaded: bool = True):
         self._score = score
         self._loaded = loaded
 
-    def analyze(self, _txn):
+    def analyze(self, _features):
         return _DummyVibeResult(
             self._score,
             models_loaded={"lightgbm": self._loaded, "xgboost": self._loaded},
@@ -102,7 +109,7 @@ def test_orchestrator_weighted_decision_and_output_shape():
 
 def test_orchestrator_parallel_path_handles_agent_errors():
     class _FailingEraTracker:
-        def analyze(self, _txn):
+        def analyze(self, _txn, pipeline_features=None):
             raise RuntimeError("era failure")
 
     orchestrator = AgentOrchestrator(

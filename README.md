@@ -15,9 +15,9 @@ This system scores financial transactions for fraud using a four-agent architect
 
 | Component | Role |
 |---|---|
-| **Vibe Checker** | Primary ML ensemble — LightGBM + XGBoost (90/10 blend) |
-| **Era Tracker** | 24-hour behavioural window analysis — CatBoost on 28 features |
-| **OG Check** | Rule + ML hybrid — LightGBM on 20 engineered rule features |
+| **Vibe Checker** | Primary ML ensemble — LightGBM + XGBoost (90/10 blend, 175 pipeline features) |
+| **Era Tracker** | 24-hour behavioural window analysis — CatBoost on 199 features (175 pipeline + 24 sliding-window) |
+| **OG Check** | Rule + ML hybrid — LightGBM on 194 features (175 pipeline + 19 rule-engineered) |
 | **The Yapper** | Explainability — SHAP TreeExplainer → OpenRouter LLM |
 
 ---
@@ -26,9 +26,9 @@ This system scores financial transactions for fraud using a four-agent architect
 
 | Agent | ROC-AUC | PR-AUC | Precision | Recall | F1 |
 |---|---:|---:|---:|---:|---:|
-| Vibe Checker (Ensemble) | 0.9706 | 0.8570 | 0.8731 | 0.7643 | 0.8151 |
-| OG Check | 0.7833 | 0.2311 | 0.2593 | 0.2374 | 0.2479 |
-| Era Tracker (CatBoost) | 0.7813 | 0.1612 | 0.1931 | 0.3183 | 0.2404 |
+| Vibe Checker (Ensemble) | 0.8991 | 0.6001 | 0.7714 | 0.4794 | 0.5913 |
+| OG Check | 0.8903 | 0.5352 | 0.6678 | 0.4417 | 0.5317 |
+| Era Tracker (CatBoost) | 0.8773 | 0.5162 | 0.6572 | 0.4240 | 0.5154 |
 
 Dataset split: 60% train (354,324) / 20% validation (118,108) / 20% test (118,108), stratified on `isFraud` (~3.5% fraud rate).
 
@@ -42,6 +42,9 @@ Development iterations that led to the current performance:
 | v2 — LogReg baseline | OG Check | 0.7039 | 0.0924 | 0.0086 | Baseline |
 | v3 — Rule features + threshold tuning | OG Check | 0.7833 | 0.2311 | 0.2479 | PR-AUC +150% |
 | v4 — CatBoost + behavioural features | Era Tracker | 0.7813 | 0.1612 | 0.2404 | PR-AUC +80%, Recall +335% |
+| v5 — FeaturePipeline (175 features) | Vibe Checker | 0.8991 | 0.6001 | 0.5913 | Pipeline retrain |
+| v5 — FeaturePipeline (175+24 features) | Era Tracker | 0.8773 | 0.5162 | 0.5154 | PR-AUC +220%, F1 +114% |
+| v5 — FeaturePipeline (175+19 features) | OG Check | 0.8903 | 0.5352 | 0.5317 | PR-AUC +132%, F1 +114% |
 
 ---
 
@@ -57,6 +60,13 @@ Client Request
 └──────┬──────┘
        │
        ▼
+┌──────────────────────────────┐
+│     FeaturePipeline          │
+│  NaN/Inf → impute → encode  │
+│  → engineer → select (175)  │
+└──────────┬───────────────────┘
+           │
+           ▼
 ┌──────────────────────────────┐
 │     LangGraph Orchestrator   │
 │  (parallel fan-out/fan-in)   │
@@ -90,7 +100,7 @@ See [docs/architecture.md](docs/architecture.md) for full technical details.
 
 ### Latency
 
-Measured p50 latency is **~620ms** on a single uvicorn worker (local dev). This is driven by 4 agents (3 ML inference + SHAP) running in parallel via ThreadPoolExecutor. With 4 gunicorn workers + Redis warm cache + production hardware, expect **200–300ms** — well within tolerance for a fraud system where the alternative is manual review taking hours. See [docs/load_test_report.md](docs/load_test_report.md) for full benchmark data.
+Measured p50 latency is **~880ms** on a single uvicorn worker (local dev). This includes FeaturePipeline preprocessing (~260ms) plus 4 agents (3 ML inference + SHAP) running in parallel via ThreadPoolExecutor. With 4 gunicorn workers + Redis warm cache + production hardware, expect **200–300ms** — well within tolerance for a fraud system where the alternative is manual review taking hours. See [docs/load_test_report.md](docs/load_test_report.md) for full benchmark data.
 
 ---
 
@@ -188,6 +198,9 @@ See [TRAINING_WORKFLOW.md](TRAINING_WORKFLOW.md) for full training documentation
 ## Project Structure
 
 ```
+├── ml/
+│   └── preprocessing/        # Feature pipeline
+│       └── feature_pipeline.py
 ├── services/
 │   ├── api_gateway/          # FastAPI application
 │   │   └── main.py
@@ -198,7 +211,7 @@ See [TRAINING_WORKFLOW.md](TRAINING_WORKFLOW.md) for full training documentation
 │       ├── era_tracker.py    # CatBoost behavioural analysis
 │       ├── og_check.py       # Rule + LightGBM hybrid
 │       └── the_yapper.py     # SHAP + LLM explainability
-├── models/                   # Trained model artifacts
+├── models/                   # Trained model artifacts + feature_pipeline.pkl
 ├── data/                     # Dataset (not committed)
 ├── frontend/                 # Streamlit dashboard
 ├── tests/                    # Unit + integration + load tests

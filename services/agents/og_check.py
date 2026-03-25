@@ -130,7 +130,14 @@ class OGCheck:
         except Exception as e:
             logger.warning("Failed to load OG Check params: %s — using defaults", e)
 
-    def analyze(self, transaction: Dict[str, Any]) -> OGCheckResult:
+    def analyze(self, transaction: Dict[str, Any], pipeline_features: Optional[Any] = None) -> OGCheckResult:
+        """Analyse a transaction using deterministic rules + LightGBM model.
+
+        Args:
+            transaction: Raw transaction dict (used for rule checks).
+            pipeline_features: 1-D array of preprocessed features from the
+                               centralised FeaturePipeline (175 features).
+        """
         # Defensively replace None values with safe defaults.
         transaction = {
             k: (v if v is not None else 0) for k, v in transaction.items()
@@ -147,7 +154,7 @@ class OGCheck:
 
         total_rules = 15
         passed_rules = total_rules - len(violations)
-        fraud_score = self._calculate_rule_score(violations, transaction)
+        fraud_score = self._calculate_rule_score(violations, transaction, pipeline_features)
         explanation = self._generate_explanation(violations)
 
         return OGCheckResult(
@@ -320,9 +327,10 @@ class OGCheck:
     # Scoring
     # ------------------------------------------------------------------
 
-    def _calculate_rule_score(self, violations: List[RuleViolation], transaction: Dict[str, Any]) -> float:
+    def _calculate_rule_score(self, violations: List[RuleViolation], transaction: Dict[str, Any],
+                              pipeline_features: Optional[Any] = None) -> float:
         if self._use_lgb and self._lgb_model is not None:
-            return self._lgb_score(transaction)
+            return self._lgb_score(transaction, pipeline_features)
         if self._logreg_coefs:
             return self._logreg_score(transaction)
         if not violations:
@@ -348,7 +356,7 @@ class OGCheck:
         import math as _math
 
         features = [
-            # Original 12
+            # Original 11 (rule_amount_log removed — pipeline handles it)
             1 if amt > max_single else 0,                           # rule_max_amount
             1 if amt > high_risk else 0,                            # rule_high_amount
             1 if (0 < amt < micro) else 0,                          # rule_micro_amount
@@ -358,7 +366,6 @@ class OGCheck:
             1 if (p_email and r_email and p_email != r_email) else 0,  # rule_email_mismatch
             1 if (not device_info and amt > 500) else 0,            # rule_no_device_high_value
             1 if hour in (0,1,2,3,4,5,22,23) else 0,               # rule_is_night
-            float(_math.log1p(max(amt, 0))),                        # rule_amount_log
             1 if self._is_missing(addr1) else 0,                    # rule_addr_missing
             1 if card4 != 'visa' else 0,                            # rule_card_not_visa
             # New 8
@@ -392,10 +399,16 @@ class OGCheck:
                 count += 1
         return float(count)
 
-    def _lgb_score(self, transaction: Dict[str, Any]) -> float:
+    def _lgb_score(self, transaction: Dict[str, Any],
+                   pipeline_features: Optional[Any] = None) -> float:
         import numpy as _np
-        features = self._build_og_features(transaction)
-        raw = float(self._lgb_model.predict([features])[0])
+        rule_features = self._build_og_features(transaction)
+        if pipeline_features is not None:
+            pipe = _np.asarray(pipeline_features, dtype=_np.float64).ravel()
+            combined = _np.concatenate([pipe, rule_features])
+        else:
+            combined = _np.asarray(rule_features, dtype=_np.float64)
+        raw = float(self._lgb_model.predict([combined])[0])
         return max(0.0, min(raw, 1.0))
 
     def _logreg_score(self, transaction: Dict[str, Any]) -> float:
@@ -422,7 +435,6 @@ class OGCheck:
             'rule_email_mismatch': 1 if (p_email and r_email and p_email != r_email) else 0,
             'rule_no_device_high_value': 1 if (not device_info and amt > 500) else 0,
             'rule_is_night': 1 if hour in (0, 1, 2, 3, 4, 5, 22, 23) else 0,
-            'rule_amount_log': float(math.log1p(max(amt, 0))),
             'rule_addr_missing': 1 if (addr1 is None or (isinstance(addr1, float) and math.isnan(addr1))) else 0,
             'rule_card_not_visa': 1 if card4 != 'visa' else 0,
         }

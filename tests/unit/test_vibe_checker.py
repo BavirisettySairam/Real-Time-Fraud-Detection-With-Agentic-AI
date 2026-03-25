@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from services.agents.vibe_checker import VibeChecker, VibeCheckerResult
+from tests.unit.conftest import preprocess
 
 
 @pytest.fixture(scope="module")
@@ -35,26 +36,29 @@ class TestVibeCheckerLoading:
 # ---------------------------------------------------------------------------
 
 class TestVibeCheckerScoring:
-    def test_basic_score_in_range(self, vibe_checker: VibeChecker):
-        result = vibe_checker.analyze({"TransactionAmt": 150.0, "ProductCD": "W"})
+    def test_basic_score_in_range(self, vibe_checker: VibeChecker, pipeline):
+        features = preprocess(pipeline, {"TransactionAmt": 150.0, "ProductCD": "W"})
+        result = vibe_checker.analyze(features)
         assert isinstance(result, VibeCheckerResult)
         assert 0.0 <= result.fraud_score <= 1.0
         assert 0.0 <= result.lightgbm_score <= 1.0
 
-    def test_high_amount_scores_higher(self, vibe_checker: VibeChecker):
-        low = vibe_checker.analyze({"TransactionAmt": 10.0})
-        high = vibe_checker.analyze({"TransactionAmt": 9999.0, "hour": 3})
+    def test_high_amount_scores_higher(self, vibe_checker: VibeChecker, pipeline):
+        low = vibe_checker.analyze(preprocess(pipeline, {"TransactionAmt": 10.0}))
+        high = vibe_checker.analyze(preprocess(pipeline, {"TransactionAmt": 9999.0, "hour": 3}))
         # High-risk transaction should generally score higher — not a strict
         # invariant but holds in practice with the trained model.
         assert high.fraud_score >= low.fraud_score * 0.3  # loose sanity check
 
-    def test_result_has_models_loaded_dict(self, vibe_checker: VibeChecker):
-        result = vibe_checker.analyze({"TransactionAmt": 100.0})
+    def test_result_has_models_loaded_dict(self, vibe_checker: VibeChecker, pipeline):
+        features = preprocess(pipeline, {"TransactionAmt": 100.0})
+        result = vibe_checker.analyze(features)
         assert "lightgbm" in result.models_loaded
         assert "xgboost" in result.models_loaded
 
-    def test_explanation_string_nonempty(self, vibe_checker: VibeChecker):
-        result = vibe_checker.analyze({"TransactionAmt": 100.0})
+    def test_explanation_string_nonempty(self, vibe_checker: VibeChecker, pipeline):
+        features = preprocess(pipeline, {"TransactionAmt": 100.0})
+        result = vibe_checker.analyze(features)
         assert isinstance(result.explanation, str)
         assert len(result.explanation) > 0
 
@@ -64,8 +68,9 @@ class TestVibeCheckerScoring:
 # ---------------------------------------------------------------------------
 
 class TestVibeCheckerVectorization:
-    def test_vectorize_returns_numpy(self, vibe_checker: VibeChecker):
-        vec = vibe_checker.vectorize_transaction({"TransactionAmt": 100.0})
+    def test_vectorize_returns_numpy(self, vibe_checker: VibeChecker, pipeline):
+        features = preprocess(pipeline, {"TransactionAmt": 100.0})
+        vec = vibe_checker.vectorize_transaction(features)
         assert isinstance(vec, np.ndarray)
         assert vec.ndim == 2
         assert vec.shape[0] == 1
@@ -91,6 +96,6 @@ class TestVibeCheckerFallback:
         checker.num_features = 0
         checker.feature_columns = []
         checker.lgb_weight = 0.9
-        result = checker.analyze({"TransactionAmt": 100.0})
+        result = checker.analyze(np.zeros(0, dtype=np.float32))
         assert result.fraud_score == 0.5
         assert result.models_loaded == {"lightgbm": False, "xgboost": False}

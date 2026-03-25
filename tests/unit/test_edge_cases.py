@@ -5,6 +5,7 @@ import pytest
 from services.agents.vibe_checker import VibeChecker, VibeCheckerResult
 from services.agents.era_tracker import EraTracker, EraTrackerResult
 from services.agents.og_check import OGCheck, OGCheckResult
+from tests.unit.conftest import preprocess
 
 
 @pytest.fixture(scope="module")
@@ -27,18 +28,23 @@ def og():
 class TestMissingFields:
     """All agents must still return a valid result when key fields are absent."""
 
-    def test_vibe_empty_transaction(self, vibe):
-        result = vibe.analyze({})
+    def test_vibe_empty_transaction(self, vibe, pipeline):
+        features = preprocess(pipeline, {})
+        result = vibe.analyze(features)
         assert isinstance(result, VibeCheckerResult)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_era_empty_transaction(self, era):
-        result = era.analyze({})
+    def test_era_empty_transaction(self, era, pipeline):
+        txn = {}
+        features = preprocess(pipeline, txn)
+        result = era.analyze(txn, pipeline_features=features)
         assert isinstance(result, EraTrackerResult)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_og_empty_transaction(self, og):
-        result = og.analyze({})
+    def test_og_empty_transaction(self, og, pipeline):
+        txn = {}
+        features = preprocess(pipeline, txn)
+        result = og.analyze(txn, pipeline_features=features)
         assert isinstance(result, OGCheckResult)
         assert 0.0 <= result.fraud_score <= 1.0
 
@@ -59,16 +65,19 @@ class TestNullValues:
         "TransactionDT": None,
     }
 
-    def test_vibe_null_values(self, vibe):
-        result = vibe.analyze(self._TXN)
+    def test_vibe_null_values(self, vibe, pipeline):
+        features = preprocess(pipeline, self._TXN)
+        result = vibe.analyze(features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_era_null_values(self, era):
-        result = era.analyze(self._TXN)
+    def test_era_null_values(self, era, pipeline):
+        features = preprocess(pipeline, self._TXN)
+        result = era.analyze(self._TXN, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_og_null_values(self, og):
-        result = og.analyze(self._TXN)
+    def test_og_null_values(self, og, pipeline):
+        features = preprocess(pipeline, self._TXN)
+        result = og.analyze(self._TXN, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
 
 
@@ -77,40 +86,55 @@ class TestNullValues:
 class TestBoundaryAmounts:
     """Amount = 0, negative, huge."""
 
-    def test_vibe_amount_zero(self, vibe):
-        result = vibe.analyze({"TransactionAmt": 0})
+    def test_vibe_amount_zero(self, vibe, pipeline):
+        features = preprocess(pipeline, {"TransactionAmt": 0})
+        result = vibe.analyze(features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_era_amount_zero(self, era):
-        result = era.analyze({"TransactionAmt": 0})
+    def test_era_amount_zero(self, era, pipeline):
+        txn = {"TransactionAmt": 0}
+        features = preprocess(pipeline, txn)
+        result = era.analyze(txn, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_og_amount_zero(self, og):
-        result = og.analyze({"TransactionAmt": 0})
+    def test_og_amount_zero(self, og, pipeline):
+        txn = {"TransactionAmt": 0}
+        features = preprocess(pipeline, txn)
+        result = og.analyze(txn, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_vibe_negative_amount(self, vibe):
-        result = vibe.analyze({"TransactionAmt": -100.0})
+    def test_vibe_negative_amount(self, vibe, pipeline):
+        features = preprocess(pipeline, {"TransactionAmt": -100.0})
+        result = vibe.analyze(features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_era_negative_amount(self, era):
-        result = era.analyze({"TransactionAmt": -100.0})
+    def test_era_negative_amount(self, era, pipeline):
+        txn = {"TransactionAmt": -100.0}
+        features = preprocess(pipeline, txn)
+        result = era.analyze(txn, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_og_negative_amount(self, og):
-        result = og.analyze({"TransactionAmt": -100.0})
+    def test_og_negative_amount(self, og, pipeline):
+        txn = {"TransactionAmt": -100.0}
+        features = preprocess(pipeline, txn)
+        result = og.analyze(txn, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_vibe_huge_amount(self, vibe):
-        result = vibe.analyze({"TransactionAmt": 999_999})
+    def test_vibe_huge_amount(self, vibe, pipeline):
+        features = preprocess(pipeline, {"TransactionAmt": 999_999})
+        result = vibe.analyze(features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_era_huge_amount(self, era):
-        result = era.analyze({"TransactionAmt": 999_999})
+    def test_era_huge_amount(self, era, pipeline):
+        txn = {"TransactionAmt": 999_999}
+        features = preprocess(pipeline, txn)
+        result = era.analyze(txn, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_og_huge_amount(self, og):
-        result = og.analyze({"TransactionAmt": 999_999})
+    def test_og_huge_amount(self, og, pipeline):
+        txn = {"TransactionAmt": 999_999}
+        features = preprocess(pipeline, txn)
+        result = og.analyze(txn, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
         # OG Check should flag a huge amount
         violations = [v.rule_name for v in result.violations]
@@ -136,16 +160,19 @@ class TestEmptyStringFields:
         "DeviceInfo": "",
     }
 
-    def test_vibe_empty_strings(self, vibe):
-        result = vibe.analyze(self._TXN)
+    def test_vibe_empty_strings(self, vibe, pipeline):
+        features = preprocess(pipeline, self._TXN)
+        result = vibe.analyze(features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_era_empty_strings(self, era):
-        result = era.analyze(self._TXN)
+    def test_era_empty_strings(self, era, pipeline):
+        features = preprocess(pipeline, self._TXN)
+        result = era.analyze(self._TXN, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_og_empty_strings(self, og):
-        result = og.analyze(self._TXN)
+    def test_og_empty_strings(self, og, pipeline):
+        features = preprocess(pipeline, self._TXN)
+        result = og.analyze(self._TXN, pipeline_features=features)
         assert 0.0 <= result.fraud_score <= 1.0
 
 
@@ -154,11 +181,14 @@ class TestEmptyStringFields:
 class TestMicroAmount:
     """Tiny amount (below $1)."""
 
-    def test_vibe_micro(self, vibe):
-        result = vibe.analyze({"TransactionAmt": 0.01})
+    def test_vibe_micro(self, vibe, pipeline):
+        features = preprocess(pipeline, {"TransactionAmt": 0.01})
+        result = vibe.analyze(features)
         assert 0.0 <= result.fraud_score <= 1.0
 
-    def test_og_micro_fires_rule(self, og):
-        result = og.analyze({"TransactionAmt": 0.50})
+    def test_og_micro_fires_rule(self, og, pipeline):
+        txn = {"TransactionAmt": 0.50}
+        features = preprocess(pipeline, txn)
+        result = og.analyze(txn, pipeline_features=features)
         violations = [v.rule_name for v in result.violations]
         assert "MICRO_AMOUNT" in violations
