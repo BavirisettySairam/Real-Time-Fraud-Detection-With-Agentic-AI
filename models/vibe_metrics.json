@@ -1,0 +1,61 @@
+{
+  "agent": "vibe_checker",
+  "trained_at": "2026-03-24T22:17:16.238377+00:00",
+  "best_threshold": 0.462631,
+  "lgb_weight": 0.9,
+  "ensemble": {
+    "roc_auc": 0.970619,
+    "pr_auc": 0.856994,
+    "precision": 0.873099,
+    "recall": 0.764279,
+    "f1": 0.815073,
+    "threshold": 0.462631,
+    "confusion_matrix": {
+      "tn": 113517,
+      "fp": 459,
+      "fn": 974,
+      "tp": 3158
+    }
+  },
+  "lightgbm": {
+    "roc_auc": 0.969876,
+    "pr_auc": 0.85853,
+    "precision": 0.878219,
+    "recall": 0.759197,
+    "f1": 0.814382,
+    "threshold": 0.462631,
+    "confusion_matrix": {
+      "tn": 113541,
+      "fp": 435,
+      "fn": 995,
+      "tp": 3137
+    }
+  },
+  "xgboost": {
+    "roc_auc": 0.966946,
+    "pr_auc": 0.814177,
+    "precision": 0.611771,
+    "recall": 0.810019,
+    "f1": 0.697074,
+    "threshold": 0.462631,
+    "confusion_matrix": {
+      "tn": 111852,
+      "fp": 2124,
+      "fn": 785,
+      "tp": 3347
+    }
+  },
+  "lgb_cv_roc_auc": [
+    0.958147,
+    0.959307,
+    0.959211
+  ],
+  "xgb_cv_roc_auc": [
+    0.955652,
+    0.956994,
+    0.95614
+  ],
+  "num_features": 445,
+  "train_rows": 354324,
+  "val_rows": 118108
+}

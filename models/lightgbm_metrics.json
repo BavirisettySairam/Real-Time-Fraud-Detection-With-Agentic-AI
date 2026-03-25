@@ -1,0 +1,139 @@
+{
+  "generated_at": "2026-03-18T08:09:46.842367+00:00",
+  "best_threshold": 0.57854769332673,
+  "best_f1": 0.5847665847173095,
+  "runtime_eval_snapshot": {
+    "rows": 10000,
+    "fraud_rate": 0.0228,
+    "threshold": 0.57854769332673,
+    "roc_auc": 0.9317249068229313,
+    "pr_auc": 0.5540378708382336,
+    "precision": 0.664804469273743,
+    "recall": 0.5219298245614035,
+    "f1": 0.5847665847665847,
+    "log_loss": 0.07369178193510519,
+    "confusion_matrix": {
+      "tn": 9712,
+      "fp": 60,
+      "fn": 109,
+      "tp": 119
+    }
+  },
+  "test_inference_snapshot": {
+    "rows": 506691,
+    "threshold": 0.57854769332673,
+    "predicted_fraud_count": 10716,
+    "predicted_fraud_rate": 0.021148984292201755,
+    "score_min": 1.5167158745775291e-05,
+    "score_max": 0.9963302095742349,
+    "score_mean": 0.05448594774153889,
+    "score_std": 0.13941694734798166,
+    "score_p50": 0.00820882741800931,
+    "score_p90": 0.13184827740708346,
+    "score_p95": 0.28133682560240436,
+    "score_p99": 0.8699494655507023
+  },
+  "top_test_predictions": [
+    {
+      "TransactionID": 3915104,
+      "fraud_score": 0.9963302095742349,
+      "TransactionAmt": 50.414,
+      "ProductCD": "C",
+      "hour": -1
+    },
+    {
+      "TransactionID": 3915107,
+      "fraud_score": 0.9962204771813028,
+      "TransactionAmt": 50.414,
+      "ProductCD": "C",
+      "hour": -1
+    },
+    {
+      "TransactionID": 3873257,
+      "fraud_score": 0.9956002943176857,
+      "TransactionAmt": 137.101,
+      "ProductCD": "C",
+      "hour": -1
+    },
+    {
+      "TransactionID": 4072763,
+      "fraud_score": 0.9955960134733548,
+      "TransactionAmt": 42.052,
+      "ProductCD": "C",
+      "hour": -1
+    },
+    {
+      "TransactionID": 4072759,
+      "fraud_score": 0.9955174207147287,
+      "TransactionAmt": 42.052,
+      "ProductCD": "C",
+      "hour": -1
+    },
+    {
+      "TransactionID": 3915102,
+      "fraud_score": 0.9954536876499152,
+      "TransactionAmt": 50.414,
+      "ProductCD": "C",
+      "hour": -1
+    },
+    {
+      "TransactionID": 3759539,
+      "fraud_score": 0.9950094463169658,
+      "TransactionAmt": 28.096,
+      "ProductCD": "C",
+      "hour": -1
+    },
+    {
+      "TransactionID": 3761185,
+      "fraud_score": 0.9949048180682057,
+      "TransactionAmt": 31.355,
+      "ProductCD": "C",
+      "hour": -1
+    },
+    {
+      "TransactionID": 3735120,
+      "fraud_score": 0.9948580278930802,
+      "TransactionAmt": 44.235,
+      "ProductCD": "C",
+      "hour": -1
+    },
+    {
+      "TransactionID": 3735119,
+      "fraud_score": 0.9948543809846491,
+      "TransactionAmt": 44.235,
+      "ProductCD": "C",
+      "hour": -1
+    }
+  ],
+  "metrics_source": "train_lightgbm_train_and_test_inference",
+  "metrics_generated_at": "2026-03-18",
+  "validation_metrics": {
+    "roc_auc": 0.9317249068229313,
+    "pr_auc": 0.5540378708382336,
+    "precision": 0.664804469273743,
+    "recall": 0.5219298245614035,
+    "f1": 0.5847665847665847,
+    "threshold": 0.57854769332673,
+    "rows": 10000,
+    "fraud_rate": 0.0228,
+    "log_loss": 0.07369178193510519,
+    "confusion_matrix": [
+      [
+        9712,
+        60
+      ],
+      [
+        109,
+        119
+      ]
+    ]
+  },
+  "cv_summary": {
+    "roc_auc_mean": 0.9399156572732636,
+    "roc_auc_std": 0.009122351154303845,
+    "pr_auc_mean": 0.7604336860289422,
+    "pr_auc_std": 0.021015889294794747,
+    "f1_mean": 0.7474538737180445,
+    "f1_std": 0.02794181100313512
+  }
+}

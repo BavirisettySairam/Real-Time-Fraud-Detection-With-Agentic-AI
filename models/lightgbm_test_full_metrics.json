@@ -1,0 +1,187 @@
+{
+  "generated_at": "2026-03-24T10:13:30.858296+00:00",
+  "dataset": "test_transaction + test_identity (full rows)",
+  "rows": 506691,
+  "model_num_features": 432,
+  "processed_feature_count": 432,
+  "used_threshold": 0.57854769332673,
+  "predicted_fraud_count": 10671,
+  "predicted_fraud_rate": 0.021060172768018377,
+  "score_min": 1.5167158745775291e-05,
+  "score_max": 0.9963302095742349,
+  "score_mean": 0.054388501683339176,
+  "score_std": 0.13919843245095706,
+  "score_quantiles": {
+    "p01": 0.00020416833399713392,
+    "p05": 0.0005542212008926465,
+    "p10": 0.0009341742547064563,
+    "p25": 0.0024366497332115426,
+    "p50": 0.008203422462835262,
+    "p75": 0.03361467329834176,
+    "p90": 0.13153966504268164,
+    "p95": 0.28064199673751744,
+    "p99": 0.8690860689136327,
+    "p999": 0.9867517854055519
+  },
+  "threshold_counts": {
+    "0.1": {
+      "count": 62792,
+      "rate": 0.1239256272560594
+    },
+    "0.2": {
+      "count": 35312,
+      "rate": 0.06969138982140989
+    },
+    "0.3": {
+      "count": 23631,
+      "rate": 0.046637891732831255
+    },
+    "0.4": {
+      "count": 16980,
+      "rate": 0.03351154845852798
+    },
+    "0.5": {
+      "count": 12953,
+      "rate": 0.025563903838828794
+    },
+    "0.6": {
+      "count": 10199,
+      "rate": 0.020128638558806058
+    },
+    "0.7": {
+      "count": 8107,
+      "rate": 0.015999889478992127
+    },
+    "0.8": {
+      "count": 6270,
+      "rate": 0.012374405702884006
+    },
+    "0.9": {
+      "count": 4419,
+      "rate": 0.008721291674807723
+    }
+  },
+  "top20_test_predictions": [
+    {
+      "TransactionID": 3915104,
+      "fraud_score": 0.9963302095742349,
+      "TransactionAmt": 50.414,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3915107,
+      "fraud_score": 0.9962204771813028,
+      "TransactionAmt": 50.414,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3873257,
+      "fraud_score": 0.9956002943176857,
+      "TransactionAmt": 137.101,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 4072763,
+      "fraud_score": 0.9955960134733548,
+      "TransactionAmt": 42.052,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 4072759,
+      "fraud_score": 0.9955174207147287,
+      "TransactionAmt": 42.052,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3915102,
+      "fraud_score": 0.9954536876499152,
+      "TransactionAmt": 50.414,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3759539,
+      "fraud_score": 0.9950094463169658,
+      "TransactionAmt": 28.096,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3761185,
+      "fraud_score": 0.9949048180682057,
+      "TransactionAmt": 31.355,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3735120,
+      "fraud_score": 0.9948580278930802,
+      "TransactionAmt": 44.235,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3735119,
+      "fraud_score": 0.9948543809846491,
+      "TransactionAmt": 44.235,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 4084126,
+      "fraud_score": 0.9948393131765297,
+      "TransactionAmt": 47.585,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3680019,
+      "fraud_score": 0.9948239175815827,
+      "TransactionAmt": 194.769,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3680023,
+      "fraud_score": 0.9948239175815827,
+      "TransactionAmt": 194.769,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3735630,
+      "fraud_score": 0.9947931960913454,
+      "TransactionAmt": 176.755,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3837821,
+      "fraud_score": 0.9947609139208748,
+      "TransactionAmt": 8.607,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3679934,
+      "fraud_score": 0.9947580405767797,
+      "TransactionAmt": 194.769,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3947105,
+      "fraud_score": 0.9947313822537804,
+      "TransactionAmt": 39.286,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3759537,
+      "fraud_score": 0.994670780378452,
+      "TransactionAmt": 28.096,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3912246,
+      "fraud_score": 0.9946567051596865,
+      "TransactionAmt": 155.421,
+      "ProductCD": "C"
+    },
+    {
+      "TransactionID": 3939413,
+      "fraud_score": 0.9946092649905008,
+      "TransactionAmt": 37.995,
+      "ProductCD": "C"
+    }
+  ],
+  "note": "Test set has no labels; supervised metrics (ROC-AUC/PR-AUC/F1/precision/recall/log-loss) are not computable."
+}

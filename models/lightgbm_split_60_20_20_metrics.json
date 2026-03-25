@@ -1,0 +1,76 @@
+{
+  "generated_at": "2026-03-24T10:27:56.551191+00:00",
+  "dataset": "train_transaction + train_identity only (test_* ignored)",
+  "split_strategy": {
+    "train": 0.6,
+    "validation": 0.2,
+    "test": 0.2,
+    "random_state": 42,
+    "stratified": true
+  },
+  "rows": {
+    "total": 590540,
+    "train": 354324,
+    "validation": 118108,
+    "test": 118108
+  },
+  "fraud_rate": {
+    "total": 0.03499000914417313,
+    "train": 0.03499057359930459,
+    "validation": 0.03498492904798998,
+    "test": 0.0349933958749619
+  },
+  "model": {
+    "num_features": 442,
+    "best_iteration": 2491,
+    "scale_pos_weight": 27.57912566542991
+  },
+  "validation_metrics": {
+    "roc_auc": 0.968691632724975,
+    "pr_auc": 0.8533486457345097,
+    "precision": 0.9137982639928165,
+    "recall": 0.7388673765730881,
+    "f1": 0.8170748026227753,
+    "threshold": 0.5554526649698555,
+    "confusion_matrix": [
+      [
+        113688,
+        288
+      ],
+      [
+        1079,
+        3053
+      ]
+    ],
+    "rows": 118108,
+    "fraud_rate": 0.03498492904798998,
+    "log_loss": 0.04592703420713918
+  },
+  "test_metrics": {
+    "roc_auc": 0.96957539737486,
+    "pr_auc": 0.8568746513918307,
+    "precision": 0.9078368065746991,
+    "recall": 0.7483668037744979,
+    "f1": 0.8204244031830239,
+    "threshold": 0.5554526649698555,
+    "confusion_matrix": [
+      [
+        113661,
+        314
+      ],
+      [
+        1040,
+        3093
+      ]
+    ],
+    "rows": 118108,
+    "fraud_rate": 0.0349933958749619,
+    "log_loss": 0.04554610657601475
+  },
+  "threshold_selection": {
+    "selected_from_validation": 0.5554526649698555,
+    "validation_best_f1": 0.8170748025733354,
+    "test_optimal_threshold_diagnostic": 0.5136989365394962,
+    "test_optimal_f1_diagnostic": 0.8220649894681646
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "thresholds": {
+    "max_single": 1104.0,
+    "high_risk_threshold": 160.95,
+    "micro_threshold": 1.0,
+    "moderate_spike": 137.0,
+    "C1_p95": 22.0,
+    "C13_p95": 102.0,
+    "D1_p95": 489.0
+  },
+  "og_model_path": "og_check_lgb.txt",
+  "features": [
+    "rule_max_amount",
+    "rule_high_amount",
+    "rule_micro_amount",
+    "rule_late_night",
+    "rule_weekend_high",
+    "rule_round_amount",
+    "rule_email_mismatch",
+    "rule_no_device_high_value",
+    "rule_is_night",
+    "rule_amount_log",
+    "rule_addr_missing",
+    "rule_card_not_visa",
+    "rule_addr2_missing",
+    "rule_D1_missing",
+    "rule_D1_high",
+    "rule_C1_high",
+    "rule_C13_high",
+    "rule_M_mismatch_count",
+    "rule_id_missing",
+    "rule_moderate_spike"
+  ],
+  "best_threshold": 0.788954,
+  "metrics": {
+    "roc_auc": 0.783281,
+    "pr_auc": 0.231111,
+    "precision": 0.259318,
+    "recall": 0.237415,
+    "f1": 0.247884,
+    "threshold": 0.788954,
+    "confusion_matrix": {
+      "tn": 111174,
+      "fp": 2802,
+      "fn": 3151,
+      "tp": 981
+    }
+  },
+  "cv_roc_auc": [
+    0.78242,
+    0.787853,
+    0.786808
+  ],
+  "trained_at": "2026-03-24T22:21:03.696597+00:00"
+}

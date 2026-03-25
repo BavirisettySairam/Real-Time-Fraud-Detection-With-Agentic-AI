@@ -1,0 +1,37 @@
+# Python cache and virtual envs
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# IDE settings
+.vscode/
+
+# Jupyter artifacts
+.ipynb_checkpoints/
+
+# Local env files
+.env
+.env.local
+.env.production
+
+# Keep repository lightweight: raw datasets are downloaded externally
+# (IEEE-CIS files are very large and should not be committed)
+data/train_transaction.csv
+data/test_transaction.csv
+data/train_identity.csv
+data/test_identity.csv
+data/val_identity.csv
+data/val_identity.csv
+data/final_identity.csv
+data/final_identity.csv
+data/final_submission.csv
+
+# Optional local artifacts
+*.log
+
+# TLS certificates (generated locally)
+nginx/certs/

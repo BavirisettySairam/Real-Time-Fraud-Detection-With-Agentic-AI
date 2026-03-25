@@ -1,0 +1,114 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: services/api_gateway/Dockerfile
+    container_name: fraud-api
+    ports:
+      - "8000:8000"
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      - LOG_LEVEL=INFO
+      - BATCH_MAX_SIZE=256
+      - BATCH_MAX_WORKERS=8
+      - USE_LANGGRAPH=true
+      - STRICT_LANGGRAPH=true
+      - ORCHESTRATOR_PARALLEL=true
+      - ORCHESTRATOR_TIMEOUT_MS=5000
+      - MODEL_PRIMARY_WEIGHT=0.75
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CORS_ALLOW_ORIGINS=http://localhost:8501,http://fraud-frontend:8501
+
+    depends_on:
+      - redis
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "1.0"
+          memory: 1G
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: fraud-frontend
+    ports:
+      - "8501:8501"
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      - API_URL=http://api:8000
+
+    depends_on:
+      - api
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+  redis:
+    image: redis:7-alpine
+    container_name: fraud-redis
+    ports:
+      - "6379:6379"
+
+    restart: unless-stopped
+
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 64M
+
+  nginx:
+    image: nginx:alpine
+    container_name: fraud-nginx
+    ports:
+      - "443:443"
+      - "80:80"
+
+    restart: unless-stopped
+
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+
+    depends_on:
+      - api
+      - frontend
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
