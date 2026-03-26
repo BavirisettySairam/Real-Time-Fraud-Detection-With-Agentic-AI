@@ -231,21 +231,23 @@ class VibeCheckerTrainer:
 
     @staticmethod
     def _train_lgb(X_train, y_train, X_val, y_val, n_folds: int = 3):
-        logger.info("--- LightGBM Training ---")
+        logger.info("--- LightGBM (GBDT) Training ---")
         scale_pw = float((y_train == 0).sum() / max((y_train == 1).sum(), 1))
         params = {
             "objective": "binary",
             "metric": ["auc", "average_precision"],
             "boosting_type": "gbdt",
-            "num_leaves": 127,
-            "learning_rate": 0.03,
-            "feature_fraction": 0.9,
-            "bagging_fraction": 0.9,
+            "num_leaves": 255,
+            "learning_rate": 0.01,
+            "feature_fraction": 0.7,
+            "bagging_fraction": 0.7,
             "bagging_freq": 1,
             "scale_pos_weight": scale_pw,
-            "lambda_l1": 0.5,
-            "lambda_l2": 0.5,
-            "min_data_in_leaf": 40,
+            "lambda_l1": 0.1,
+            "lambda_l2": 0.1,
+            "min_data_in_leaf": 20,
+            "max_depth": -1,
+            "path_smooth": 0.1,
             "num_threads": -1,
             "verbose": -1,
             "seed": 42,
@@ -256,18 +258,65 @@ class VibeCheckerTrainer:
         for fold, (tr_idx, va_idx) in enumerate(skf.split(X_train, y_train), 1):
             d_tr = lgb.Dataset(X_train[tr_idx], label=y_train[tr_idx])
             d_va = lgb.Dataset(X_train[va_idx], label=y_train[va_idx], reference=d_tr)
-            m = lgb.train(params, d_tr, num_boost_round=2500,
+            m = lgb.train(params, d_tr, num_boost_round=5000,
                           valid_sets=[d_va],
-                          callbacks=[lgb.early_stopping(200), lgb.log_evaluation(0)])
+                          callbacks=[lgb.early_stopping(300), lgb.log_evaluation(0)])
             cv_auc.append(roc_auc_score(y_train[va_idx], m.predict(X_train[va_idx])))
             logger.info("  Fold %d ROC-AUC: %.4f", fold, cv_auc[-1])
         logger.info("  CV ROC-AUC: %.4f ± %.4f", np.mean(cv_auc), np.std(cv_auc))
 
         d_tr = lgb.Dataset(X_train, label=y_train)
         d_va = lgb.Dataset(X_val, label=y_val, reference=d_tr)
-        model = lgb.train(params, d_tr, num_boost_round=2500,
+        model = lgb.train(params, d_tr, num_boost_round=5000,
                           valid_sets=[d_tr, d_va],
-                          callbacks=[lgb.early_stopping(200), lgb.log_evaluation(100)])
+                          callbacks=[lgb.early_stopping(300), lgb.log_evaluation(200)])
+        return model, cv_auc
+
+    @staticmethod
+    def _train_lgb_dart(X_train, y_train, X_val, y_val, n_folds: int = 3):
+        """Train a DART-boosted LightGBM for diversity in the ensemble."""
+        logger.info("--- LightGBM (DART) Training ---")
+        scale_pw = float((y_train == 0).sum() / max((y_train == 1).sum(), 1))
+        params = {
+            "objective": "binary",
+            "metric": ["auc", "average_precision"],
+            "boosting_type": "dart",
+            "num_leaves": 192,
+            "learning_rate": 0.02,
+            "feature_fraction": 0.75,
+            "bagging_fraction": 0.75,
+            "bagging_freq": 1,
+            "scale_pos_weight": scale_pw,
+            "lambda_l1": 0.2,
+            "lambda_l2": 0.2,
+            "min_data_in_leaf": 25,
+            "max_depth": -1,
+            "drop_rate": 0.1,
+            "skip_drop": 0.5,
+            "num_threads": -1,
+            "verbose": -1,
+            "seed": 123,
+        }
+
+        # DART doesn't support early stopping well, use fixed rounds
+        # Train CV to estimate quality
+        skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
+        cv_auc = []
+        for fold, (tr_idx, va_idx) in enumerate(skf.split(X_train, y_train), 1):
+            d_tr = lgb.Dataset(X_train[tr_idx], label=y_train[tr_idx])
+            d_va = lgb.Dataset(X_train[va_idx], label=y_train[va_idx], reference=d_tr)
+            m = lgb.train(params, d_tr, num_boost_round=2000,
+                          valid_sets=[d_va],
+                          callbacks=[lgb.log_evaluation(0)])
+            cv_auc.append(roc_auc_score(y_train[va_idx], m.predict(X_train[va_idx])))
+            logger.info("  DART Fold %d ROC-AUC: %.4f", fold, cv_auc[-1])
+        logger.info("  DART CV ROC-AUC: %.4f ± %.4f", np.mean(cv_auc), np.std(cv_auc))
+
+        d_tr = lgb.Dataset(X_train, label=y_train)
+        d_va = lgb.Dataset(X_val, label=y_val, reference=d_tr)
+        model = lgb.train(params, d_tr, num_boost_round=2000,
+                          valid_sets=[d_tr, d_va],
+                          callbacks=[lgb.log_evaluation(200)])
         return model, cv_auc
 
     @staticmethod
@@ -279,14 +328,14 @@ class VibeCheckerTrainer:
             "objective": "binary:logistic",
             "eval_metric": "aucpr",
             "tree_method": "hist",
-            "max_depth": 8,
-            "learning_rate": 0.03,
-            "subsample": 0.9,
-            "colsample_bytree": 0.9,
+            "max_depth": 10,
+            "learning_rate": 0.01,
+            "subsample": 0.85,
+            "colsample_bytree": 0.85,
             "scale_pos_weight": scale_pw,
-            "reg_alpha": 0.5,
-            "reg_lambda": 0.5,
-            "min_child_weight": 40,
+            "reg_alpha": 0.1,
+            "reg_lambda": 0.1,
+            "min_child_weight": 20,
             "seed": 42,
             "verbosity": 0,
         }
@@ -296,9 +345,9 @@ class VibeCheckerTrainer:
         for fold, (tr_idx, va_idx) in enumerate(skf.split(X_train, y_train), 1):
             dtrain = xgb.DMatrix(X_train[tr_idx], label=y_train[tr_idx])
             dval = xgb.DMatrix(X_train[va_idx], label=y_train[va_idx])
-            m = xgb.train(params, dtrain, num_boost_round=2500,
+            m = xgb.train(params, dtrain, num_boost_round=5000,
                           evals=[(dval, "val")],
-                          early_stopping_rounds=200, verbose_eval=0)
+                          early_stopping_rounds=300, verbose_eval=0)
             preds = m.predict(dval)
             cv_auc.append(roc_auc_score(y_train[va_idx], preds))
             logger.info("  Fold %d ROC-AUC: %.4f", fold, cv_auc[-1])
@@ -306,25 +355,46 @@ class VibeCheckerTrainer:
 
         dtrain = xgb.DMatrix(X_train, label=y_train)
         dval = xgb.DMatrix(X_val, label=y_val)
-        model = xgb.train(params, dtrain, num_boost_round=2500,
+        model = xgb.train(params, dtrain, num_boost_round=5000,
                           evals=[(dtrain, "train"), (dval, "val")],
-                          early_stopping_rounds=200, verbose_eval=100)
+                          early_stopping_rounds=300, verbose_eval=100)
         return model, cv_auc
 
     @staticmethod
-    def _find_best_lgb_weight(lgb_scores, xgb_scores, y_true):
-        best_w, best_auc = 0.5, 0.0
-        for w in np.arange(0.0, 1.01, 0.05):
-            ensemble = w * lgb_scores + (1 - w) * xgb_scores
-            auc = roc_auc_score(y_true, ensemble)
-            if auc > best_auc:
-                best_w, best_auc = w, auc
-        logger.info("  Best lgb_weight=%.2f  ROC-AUC=%.6f", best_w, best_auc)
-        return float(round(best_w, 2))
+    def _find_best_weights(model_scores: dict, y_true: np.ndarray):
+        """Find best weights for N-model ensemble by maximizing F1."""
+        from itertools import product as iterproduct
+        names = list(model_scores.keys())
+        n = len(names)
+        best_f1, best_weights = 0.0, {nm: 1.0 / n for nm in names}
+
+        # Grid search over weight combinations (step 0.05)
+        grid = np.arange(0.0, 1.01, 0.05)
+        for combo in iterproduct(grid, repeat=n):
+            w_sum = sum(combo)
+            if w_sum < 0.01:
+                continue
+            weights = [c / w_sum for c in combo]  # normalize
+            ensemble = sum(w * model_scores[nm] for w, nm in zip(weights, names))
+            # Find threshold that maximizes F1
+            pr, rc, thr = precision_recall_curve(y_true, ensemble)
+            f1_arr = 2 * pr * rc / (pr + rc + 1e-10)
+            valid = pr >= 0.15
+            f1_masked = np.where(valid, f1_arr, -1)
+            idx = int(np.argmax(f1_masked))
+            if f1_masked[idx] < 0:
+                idx = int(np.argmax(f1_arr))
+            f1_val = float(f1_arr[idx])
+            if f1_val > best_f1:
+                best_f1 = f1_val
+                best_weights = {nm: round(w, 4) for nm, w in zip(names, weights)}
+
+        logger.info("  Best ensemble weights: %s  → F1=%.6f", best_weights, best_f1)
+        return best_weights
 
     def train(self, X_train, y_train, X_val, y_val, n_folds=3):
         logger.info("=" * 70)
-        logger.info("VIBE CHECKER — XGBoost + LightGBM Ensemble")
+        logger.info("VIBE CHECKER — 2-Model Ensemble (LGB-GBDT + XGB)")
         logger.info("=" * 70)
 
         self.feature_columns = list(X_train.columns) if hasattr(X_train, 'columns') else []
@@ -333,7 +403,10 @@ class VibeCheckerTrainer:
         y_tr = np.asarray(y_train, dtype=np.int32)
         y_va = np.asarray(y_val, dtype=np.int32)
 
+        # --- Model 1: LightGBM GBDT ---
         lgb_model, lgb_cv = self._train_lgb(X_tr, y_tr, X_va, y_va, n_folds)
+
+        # --- Model 2: XGBoost ---
         try:
             xgb_model, xgb_cv = self._train_xgb(X_tr, y_tr, X_va, y_va, n_folds)
             xgb_available = True
@@ -342,33 +415,36 @@ class VibeCheckerTrainer:
             xgb_model, xgb_cv = None, []
             xgb_available = False
 
+        # --- Build val predictions ---
         lgb_val = np.clip(lgb_model.predict(X_va), 0, 1)
+        model_scores = {"lgb": lgb_val}
         if xgb_available:
             import xgboost as xgb
             xgb_val = np.clip(xgb_model.predict(xgb.DMatrix(X_va)), 0, 1)
-            lgb_weight = self._find_best_lgb_weight(lgb_val, xgb_val, y_va)
-            ensemble_val = lgb_weight * lgb_val + (1 - lgb_weight) * xgb_val
-        else:
-            lgb_weight = 1.0
-            xgb_val = lgb_val
-            ensemble_val = lgb_val
+            model_scores["xgb"] = xgb_val
+
+        # --- Find best ensemble weights (maximize F1) ---
+        best_weights = self._find_best_weights(model_scores, y_va)
+        ensemble_val = sum(best_weights[nm] * model_scores[nm] for nm in model_scores)
 
         thr, _ = optimal_threshold(y_va, ensemble_val)
         lgb_met = compute_metrics(y_va, lgb_val, thr)
-        xgb_met = compute_metrics(y_va, xgb_val, thr) if xgb_available else {}
         ens_met = compute_metrics(y_va, ensemble_val, thr)
 
-        logger.info("LightGBM  — ROC-AUC: %.4f  PR-AUC: %.4f  F1: %.4f",
+        logger.info("LGB-GBDT  — ROC-AUC: %.4f  PR-AUC: %.4f  F1: %.4f",
                      lgb_met["roc_auc"], lgb_met["pr_auc"], lgb_met["f1"])
         if xgb_available:
+            xgb_met = compute_metrics(y_va, xgb_val, thr)
             logger.info("XGBoost   — ROC-AUC: %.4f  PR-AUC: %.4f  F1: %.4f",
                          xgb_met["roc_auc"], xgb_met["pr_auc"], xgb_met["f1"])
-        logger.info("Ensemble  — ROC-AUC: %.4f  PR-AUC: %.4f  F1: %.4f  (w=%.2f, thr=%.4f)",
-                     ens_met["roc_auc"], ens_met["pr_auc"], ens_met["f1"], lgb_weight, thr)
+        else:
+            xgb_met = {}
+        logger.info("Ensemble  — ROC-AUC: %.4f  PR-AUC: %.4f  F1: %.4f  (weights=%s, thr=%.4f)",
+                     ens_met["roc_auc"], ens_met["pr_auc"], ens_met["f1"], best_weights, thr)
 
         # Log to file
         log_metrics_to_file("Vibe Checker (Ensemble)", ens_met, y_va, ensemble_val, thr)
-        log_metrics_to_file("Vibe Checker (LightGBM)", lgb_met, y_va, lgb_val, thr)
+        log_metrics_to_file("Vibe Checker (LGB-GBDT)", lgb_met, y_va, lgb_val, thr)
         if xgb_available:
             log_metrics_to_file("Vibe Checker (XGBoost)", xgb_met, y_va, xgb_val, thr)
 
@@ -383,7 +459,7 @@ class VibeCheckerTrainer:
             "agent": "vibe_checker",
             "trained_at": datetime.now(timezone.utc).isoformat(),
             "best_threshold": round(thr, 6),
-            "lgb_weight": lgb_weight,
+            "ensemble_weights": best_weights,
             "ensemble": {k: round(v, 6) if isinstance(v, float) else v for k, v in ens_met.items()},
             "lightgbm": {k: round(v, 6) if isinstance(v, float) else v for k, v in lgb_met.items()},
             "xgboost": {k: round(v, 6) if isinstance(v, float) else v for k, v in xgb_met.items()},
@@ -593,15 +669,15 @@ def train_era_tracker(X_train_pipe, df_train, X_val_pipe, df_val, n_folds=3):
                 len(X_train), len(X_val), y_train.mean() * 100)
 
     model = CatBoostClassifier(
-        iterations=2000,
-        learning_rate=0.05,
+        iterations=4000,
+        learning_rate=0.02,
         depth=8,
         l2_leaf_reg=3.0,
         random_seed=42,
         auto_class_weights="Balanced",
         eval_metric="AUC",
         verbose=200,
-        early_stopping_rounds=200,
+        early_stopping_rounds=400,
         use_best_model=True,
         task_type="CPU",
     )
@@ -790,15 +866,16 @@ def train_og_check(X_train_pipe, df_train, X_val_pipe, df_val):
         "objective": "binary",
         "metric": ["auc", "average_precision"],
         "boosting_type": "gbdt",
-        "num_leaves": 31,
-        "learning_rate": 0.05,
-        "feature_fraction": 0.9,
-        "bagging_fraction": 0.9,
-        "bagging_freq": 3,
+        "num_leaves": 127,
+        "learning_rate": 0.02,
+        "feature_fraction": 0.85,
+        "bagging_fraction": 0.85,
+        "bagging_freq": 1,
         "scale_pos_weight": scale_pw,
-        "lambda_l1": 0.3,
-        "lambda_l2": 0.3,
-        "min_data_in_leaf": 100,
+        "lambda_l1": 0.1,
+        "lambda_l2": 0.1,
+        "min_data_in_leaf": 40,
+        "max_depth": 10,
         "num_threads": -1,
         "verbose": -1,
         "seed": 42,
@@ -810,9 +887,9 @@ def train_og_check(X_train_pipe, df_train, X_val_pipe, df_val):
     for fold, (tr_idx, va_idx) in enumerate(skf.split(X_train, y_train), 1):
         d_tr = lgb.Dataset(X_train[tr_idx], label=y_train[tr_idx], feature_name=all_features)
         d_va = lgb.Dataset(X_train[va_idx], label=y_train[va_idx], reference=d_tr, feature_name=all_features)
-        m = lgb.train(params, d_tr, num_boost_round=500,
+        m = lgb.train(params, d_tr, num_boost_round=3000,
                       valid_sets=[d_va],
-                      callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)])
+                      callbacks=[lgb.early_stopping(200), lgb.log_evaluation(0)])
         preds = m.predict(X_train[va_idx])
         auc_val = roc_auc_score(y_train[va_idx], preds)
         cv_auc.append(auc_val)
@@ -822,9 +899,9 @@ def train_og_check(X_train_pipe, df_train, X_val_pipe, df_val):
     # Final model
     d_tr = lgb.Dataset(X_train, label=y_train, feature_name=all_features)
     d_va = lgb.Dataset(X_val, label=y_val, reference=d_tr, feature_name=all_features)
-    model = lgb.train(params, d_tr, num_boost_round=500,
+    model = lgb.train(params, d_tr, num_boost_round=3000,
                       valid_sets=[d_tr, d_va],
-                      callbacks=[lgb.early_stopping(50), lgb.log_evaluation(50)])
+                      callbacks=[lgb.early_stopping(200), lgb.log_evaluation(50)])
 
     val_scores = np.clip(model.predict(X_val), 0, 1)
     thr, _ = optimal_threshold(y_val, val_scores)

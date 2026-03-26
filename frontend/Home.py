@@ -641,49 +641,68 @@ def batch_upload_view():
     if not uploaded_tx:
         return
 
-    tx_df = pd.read_csv(uploaded_tx)
-    tx_valid, tx_missing = _validate_required_columns(tx_df, TRANSACTION_REQUIRED_COLUMNS)
+    # --- Read only headers first to validate without loading all data ---
+    tx_header = pd.read_csv(uploaded_tx, nrows=0)
+    tx_valid, tx_missing = _validate_required_columns(tx_header, TRANSACTION_REQUIRED_COLUMNS)
     if not tx_valid:
         st.error(f"Transaction CSV missing columns: {tx_missing}")
         return
+    has_labels = "isFraud" in tx_header.columns
+    uploaded_tx.seek(0)  # reset for later read
 
+    # Count rows without loading data (read only 1 column)
+    row_count_df = pd.read_csv(uploaded_tx, usecols=["TransactionID"])
+    total_rows = len(row_count_df)
+    all_tx_ids = row_count_df["TransactionID"].values
+    uploaded_tx.seek(0)
+
+    # If labels present, get fraud indices for stratified sampling
+    if has_labels:
+        label_df = pd.read_csv(uploaded_tx, usecols=["TransactionID", "isFraud"])
+        fraud_ids = set(label_df.loc[label_df["isFraud"] == 1, "TransactionID"].values)
+        uploaded_tx.seek(0)
+    else:
+        label_df = None
+        fraud_ids = set()
+
+    id_header = None
     if uploaded_id:
-        id_df = pd.read_csv(uploaded_id)
-        id_valid, id_missing = _validate_required_columns(id_df, IDENTITY_REQUIRED_COLUMNS)
+        id_header = pd.read_csv(uploaded_id, nrows=0)
+        id_valid, id_missing = _validate_required_columns(id_header, IDENTITY_REQUIRED_COLUMNS)
         if not id_valid:
             st.error(f"Identity CSV missing columns: {id_missing}")
             return
-        df = tx_df.merge(id_df, on="TransactionID", how="left")
-    else:
-        df = tx_df
+        uploaded_id.seek(0)
 
     with col_left:
-        st.write(f"**{len(df)}** transactions loaded")
-        has_labels = "isFraud" in df.columns
-        analyze_all = st.checkbox("Analyze all", value=False)
+        st.write(f"**{total_rows}** transactions detected")
+        if has_labels:
+            n_fraud_total = len(fraud_ids)
+            st.caption(f"{n_fraud_total} fraud ({n_fraud_total/total_rows*100:.1f}%) / {total_rows - n_fraud_total} normal")
+        analyze_all = st.checkbox("Analyze all (slow for large files)", value=False)
 
         if analyze_all:
-            sample_df = df
+            max_sample = min(total_rows, 2000)
+            sample_ids = all_tx_ids[:max_sample]
+            if analyze_all and total_rows > max_sample:
+                st.warning(f"Capped at {max_sample} to avoid memory issues.")
         else:
-            max_n = min(len(df), 500)
+            max_n = min(total_rows, 500)
             n_txns = st.slider("Sample size", min_value=5, max_value=max_n, value=min(20, max_n), step=5)
-            if has_labels:
-                n_fraud = min(int(n_txns * 0.7), len(df[df["isFraud"] == 1]))
-                n_normal = min(n_txns - n_fraud, len(df[df["isFraud"] == 0]))
-                n_fraud = min(n_fraud, len(df[df["isFraud"] == 1]))
-                n_normal = min(n_normal, len(df[df["isFraud"] == 0]))
-                if n_fraud + n_normal < n_txns:
-                    remaining = n_txns - n_fraud - n_normal
-                    if len(df[df["isFraud"] == 1]) - n_fraud > 0:
-                        n_fraud = min(n_fraud + remaining, len(df[df["isFraud"] == 1]))
-                    else:
-                        n_normal = min(n_normal + remaining, len(df[df["isFraud"] == 0]))
-                fraud_sample = df[df["isFraud"] == 1].sample(n=n_fraud, random_state=42)
-                normal_sample = df[df["isFraud"] == 0].sample(n=n_normal, random_state=42)
-                sample_df = pd.concat([fraud_sample, normal_sample]).sample(frac=1, random_state=42)
-                st.caption(f"{n_fraud} fraud + {n_normal} normal = {len(sample_df)} sampled")
+            if has_labels and label_df is not None:
+                n_fraud = min(int(n_txns * 0.7), n_fraud_total)
+                n_normal = n_txns - n_fraud
+                fraud_arr = label_df.loc[label_df["isFraud"] == 1, "TransactionID"].values
+                normal_arr = label_df.loc[label_df["isFraud"] == 0, "TransactionID"].values
+                rng = __import__("numpy").random.RandomState(42)
+                picked_fraud = rng.choice(fraud_arr, size=min(n_fraud, len(fraud_arr)), replace=False)
+                picked_normal = rng.choice(normal_arr, size=min(n_normal, len(normal_arr)), replace=False)
+                sample_ids = __import__("numpy").concatenate([picked_fraud, picked_normal])
+                rng.shuffle(sample_ids)
+                st.caption(f"{len(picked_fraud)} fraud + {len(picked_normal)} normal = {len(sample_ids)} sampled")
             else:
-                sample_df = df.sample(n=min(n_txns, len(df)), random_state=42)
+                rng = __import__("numpy").random.RandomState(42)
+                sample_ids = rng.choice(all_tx_ids, size=min(n_txns, total_rows), replace=False)
 
         run_batch = st.button("Analyze Batch", use_container_width=True)
 
@@ -692,6 +711,24 @@ def batch_upload_view():
         if not run_batch:
             st.info("Configure sample and click **Analyze Batch**.")
             return
+
+        # --- Now load ONLY the sampled rows via chunked reading ---
+        sample_set = set(int(x) for x in sample_ids)
+        with st.spinner(f"Loading {len(sample_set)} sampled rows…"):
+            chunks = []
+            for chunk in pd.read_csv(uploaded_tx, chunksize=5000):
+                match = chunk[chunk["TransactionID"].isin(sample_set)]
+                if not match.empty:
+                    chunks.append(match)
+                if sum(len(c) for c in chunks) >= len(sample_set):
+                    break
+            sample_df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+            del chunks
+
+            if uploaded_id and not sample_df.empty:
+                id_df = pd.read_csv(uploaded_id)
+                sample_df = sample_df.merge(id_df, on="TransactionID", how="left")
+                del id_df
 
         results = []
         progress = st.progress(0)

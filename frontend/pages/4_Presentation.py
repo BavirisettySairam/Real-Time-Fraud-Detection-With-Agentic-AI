@@ -140,7 +140,7 @@ with col1:
         "<p>Full project report covering problem statement, methodology, "
         "architecture design, training pipeline, evaluation results, "
         "and deployment strategy.</p>"
-        '<a href="https://docs.google.com/document/d/1Ite0lvuRiGSQAEU1Y5V_3MMdxkn4baFIQx9XuccRbJ8/edit?usp=sharing" '
+        '<a href="https://docs.google.com/document/d/1FkzxllSKDq9j7nPmzEP0jpwd8kJAuws5/edit?usp=sharing&ouid=101672989201710559146&rtpof=true&sd=true" '
         'target="_blank">Open Document</a>'
         "</div>",
         unsafe_allow_html=True,
@@ -153,7 +153,7 @@ with col2:
         "<p>Presentation slides summarising the fraud detection system — "
         "architecture diagrams, model comparisons, performance metrics, "
         "and live demo walkthrough.</p>"
-        '<a href="https://docs.google.com/presentation/d/16z_GUXKDf58VeVRYs0NdcIDF70Lsgp0M/edit?usp=sharing&ouid=101672989201710559146&rtpof=true&sd=true" '
+        '<a href="https://docs.google.com/presentation/d/14w_GvcUO6Xl06nPssLcsEM27epEKvrwr/edit?usp=sharing&ouid=101672989201710559146&rtpof=true&sd=true" '
         'target="_blank">Open Slides</a>'
         "</div>",
         unsafe_allow_html=True,
@@ -167,7 +167,7 @@ st.markdown("---")
 st.markdown("### Slide Preview")
 
 SLIDES_EMBED_URL = (
-    "https://docs.google.com/presentation/d/16z_GUXKDf58VeVRYs0NdcIDF70Lsgp0M/embed"
+    "https://docs.google.com/presentation/d/14w_GvcUO6Xl06nPssLcsEM27epEKvrwr/embed"
     "?start=false&loop=false&delayms=3000"
 )
 

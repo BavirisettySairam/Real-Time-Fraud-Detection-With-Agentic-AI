@@ -226,25 +226,25 @@
     "rule_id_missing",
     "rule_moderate_spike"
   ],
-  "best_threshold": 0.814408,
+  "best_threshold": 0.806167,
   "metrics": {
-    "roc_auc": 0.890254,
-    "pr_auc": 0.535241,
-    "precision": 0.667764,
-    "recall": 0.441675,
-    "f1": 0.531682,
-    "threshold": 0.814408,
+    "roc_auc": 0.905467,
+    "pr_auc": 0.62202,
+    "precision": 0.806208,
+    "recall": 0.490319,
+    "f1": 0.609782,
+    "threshold": 0.806167,
     "confusion_matrix": {
-      "tn": 113068,
-      "fp": 908,
-      "fn": 2307,
-      "tp": 1825
+      "tn": 113489,
+      "fp": 487,
+      "fn": 2106,
+      "tp": 2026
     }
   },
   "cv_roc_auc": [
-    0.885432,
-    0.884116,
-    0.885219
+    0.895033,
+    0.88955,
+    0.893245
   ],
-  "trained_at": "2026-03-25T11:29:23.898029+00:00"
+  "trained_at": "2026-03-26T00:37:05.498311+00:00"
 }

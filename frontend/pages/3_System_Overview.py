@@ -3,7 +3,9 @@
 # =============================================================================
 
 import streamlit as st
+import streamlit.components.v1 as components
 import json
+import requests
 from pathlib import Path
 
 st.set_page_config(page_title="System Overview", layout="wide", page_icon="🏗️")
@@ -88,6 +90,139 @@ st.markdown(
     "                                 (score, decision, explanation, SHAP)\n"
     "```"
 )
+
+# =============================================================================
+# LANGGRAPH WORKFLOW ARCHITECTURE
+# =============================================================================
+
+st.markdown("---")
+st.markdown("### LangGraph Workflow Architecture")
+st.markdown(
+    "The orchestrator uses **LangGraph** (StateGraph) to coordinate all agents. "
+    "Each agent is a graph **node** that reads/writes to a shared `FraudState`. "
+    "In parallel mode, all three scoring agents fan out from START and converge at "
+    "the decision node."
+)
+
+# ── Dynamic Mermaid graph from the API (fallback to hardcoded) ──
+API_BASE = "http://localhost:8000"
+FALLBACK_MERMAID = """graph TD
+    A[Transaction Input] --> B["Vibe Checker — XGB+LGB"]
+    A --> D["Era Tracker — 24hr Window"]
+    A --> E["OG Check — Rules"]
+    B --> F["Decision Aggregator<br/>Weighted Fusion 60/25/15"]
+    D --> F
+    E --> F
+    F --> G["The Yapper — SHAP+LLM"]
+    G --> H[Final Output]
+
+    style A fill:#e1f5fe,stroke:#0288d1,color:#000
+    style H fill:#c8e6c9,stroke:#388e3c,color:#000
+    style F fill:#fff3e0,stroke:#f57c00,color:#000
+    style B fill:#d1fae5,stroke:#059669,color:#000
+    style D fill:#d1fae5,stroke:#059669,color:#000
+    style E fill:#d1fae5,stroke:#059669,color:#000
+    style G fill:#ede9fe,stroke:#7c3aed,color:#000"""
+
+@st.cache_data(ttl=30)
+def _fetch_workflow_mermaid():
+    try:
+        resp = requests.get(f"{API_BASE}/api/v1/workflow", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            mermaid = data.get("mermaid_diagram", "")
+            # Strip markdown fences if present
+            mermaid = mermaid.strip()
+            if mermaid.startswith("```"):
+                lines = mermaid.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                mermaid = "\n".join(lines).strip()
+            if mermaid:
+                mode = data.get("mode", "parallel")
+                active = data.get("langgraph_active", False)
+                return mermaid, mode, active
+    except Exception:
+        pass
+    return FALLBACK_MERMAID, "parallel", False
+
+mermaid_code, wf_mode, lg_active = _fetch_workflow_mermaid()
+
+st.markdown(
+    f"**Mode:** `{wf_mode}` &nbsp;|&nbsp; "
+    f"**LangGraph runtime:** {'Active' if lg_active else 'Fallback (ThreadPoolExecutor)'}"
+)
+
+def render_mermaid(mermaid_src: str, height: int = 420):
+    """Render a Mermaid diagram using Mermaid.js CDN inside an HTML component."""
+    # Escape backticks/special chars for safe JS embedding
+    safe = mermaid_src.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+    html = f"""
+    <div id="mermaid-container" style="display:flex;justify-content:center;padding:1rem 0;">
+        <pre class="mermaid" style="background:transparent;">
+{mermaid_src}
+        </pre>
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({{
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {{ curve: 'basis', padding: 15 }},
+            themeVariables: {{
+                fontSize: '14px',
+                fontFamily: 'Inter, sans-serif'
+            }}
+        }});
+    </script>
+    """
+    components.html(html, height=height, scrolling=False)
+
+render_mermaid(mermaid_code)
+
+lg1, lg2, lg3 = st.columns(3)
+with lg1:
+    st.markdown(
+        '<div class="info-card">'
+        "<h4>FraudState (Shared State)</h4>"
+        "<p>TypedDict passed through all nodes:</p>"
+        "<ul>"
+        "<li><code>transaction</code> — raw input dict</li>"
+        "<li><code>pipeline_features</code> — 175-dim array</li>"
+        "<li><code>vibe_score</code>, <code>era_score</code>, <code>og_score</code></li>"
+        "<li><code>final_score</code>, <code>final_decision</code></li>"
+        "<li><code>explanation</code>, <code>explanation_details</code></li>"
+        "</ul></div>",
+        unsafe_allow_html=True,
+    )
+with lg2:
+    st.markdown(
+        '<div class="info-card">'
+        "<h4>Parallel Fan-Out</h4>"
+        "<p>LangGraph detects that all 3 agent nodes share the "
+        "same predecessor (<code>START</code>) and runs them "
+        "<b>concurrently</b>.</p>"
+        "<ul>"
+        "<li>Each node writes only its own keys</li>"
+        "<li>No cross-agent data dependency</li>"
+        "<li>Fallback: sequential chain if parallel disabled</li>"
+        "<li>ThreadPoolExecutor backup if LangGraph unavailable</li>"
+        "</ul></div>",
+        unsafe_allow_html=True,
+    )
+with lg3:
+    st.markdown(
+        '<div class="info-card">'
+        "<h4>Decision → Yapper</h4>"
+        "<p>The <b>decision</b> node fuses agent scores:</p>"
+        "<ul>"
+        "<li>Default: 60% Vibe + 25% Era + 15% OG</li>"
+        "<li>High-confidence: if Vibe ≥ 0.8 → 100% Vibe</li>"
+        "<li>Maps to BLOCK / REVIEW / APPROVE</li>"
+        "</ul>"
+        "<p>Then <b>yapper</b> generates SHAP attributions + "
+        "Gemini LLM narrative.</p></div>",
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
 st.markdown("### Request Lifecycle")

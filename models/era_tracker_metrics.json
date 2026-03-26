@@ -1,8 +1,8 @@
 {
   "agent": "era_tracker",
   "model_type": "catboost",
-  "trained_at": "2026-03-25T11:27:47.858481+00:00",
-  "best_threshold": 0.806267,
+  "trained_at": "2026-03-26T01:32:25.433800+00:00",
+  "best_threshold": 0.799365,
   "num_features": 199,
   "pipeline_features": 175,
   "sliding_window_features": [
@@ -232,19 +232,19 @@
     "product_diversity_24h",
     "burst_amt_10min"
   ],
-  "roc_auc": 0.877316,
-  "pr_auc": 0.516191,
-  "precision": 0.657164,
-  "recall": 0.424008,
-  "f1": 0.515446,
-  "threshold": 0.806267,
+  "roc_auc": 0.877637,
+  "pr_auc": 0.514788,
+  "precision": 0.647123,
+  "recall": 0.430058,
+  "f1": 0.51672,
+  "threshold": 0.799365,
   "confusion_matrix": {
-    "tn": 113062,
-    "fp": 914,
-    "fn": 2380,
-    "tp": 1752
+    "tn": 113007,
+    "fp": 969,
+    "fn": 2355,
+    "tp": 1777
   },
-  "best_iteration": 1118,
+  "best_iteration": 2755,
   "train_rows": 354324,
   "val_rows": 118108
 }
